@@ -1062,6 +1062,11 @@ function App() {
   const scores = step === 6 ? computeScores(answers) : null;
   const today = new Date().toLocaleDateString("de-DE",{day:"2-digit",month:"long",year:"numeric"});
 
+  const handlePDF = useCallback(()=>{
+    if(pdfStatus!=="idle"||!scores) return;
+    generatePDF(scores, name||"Reflexionsprofil", today, setPdfStatus);
+  },[pdfStatus,scores,name,today]);
+
   useEffect(() => {
     if (step === 6 && scores && urlTeamCode && saveStatus === "idle") {
       setSaveStatus("saving");
@@ -1072,11 +1077,6 @@ function App() {
   }, [step, scores, urlTeamCode, saveStatus]);
 
   if (mode === "facilitator") return <FacilitatorView onBack={()=>setMode("survey")} teamCode={urlTeamCode} />;
-
-  const handlePDF = useCallback(()=>{
-    if(pdfStatus!=="idle"||!scores) return;
-    generatePDF(scores, name||"Reflexionsprofil", today, setPdfStatus);
-  },[pdfStatus,scores,name,today]);
 
   const setAns = (id,v) => setAnswers(p=>({...p,[id]:v}));
   const allDone = items => items.every(i=>answers[i.id]!==undefined);
