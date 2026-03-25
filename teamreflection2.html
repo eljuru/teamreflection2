@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Team-Reflexion · Kommunikationsprofil</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#0b1321;color:#e8ddc8;font-family:'Segoe UI',system-ui,sans-serif;}
+  button:hover{opacity:0.85;}
+  #root{min-height:100vh;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState, useRef, useCallback, useEffect} = React;
+const {RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+       ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell} = Recharts;
+
+// ── Supabase ──
+const SUPABASE_URL = "https://lzfalarwcvhadquaptlv.supabase.co";
+const SUPABASE_KEY = "sb_publishable_qrQMwydWwEm-gJaDN14EvQ_pVb7Magq";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+function getTeamCode() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("team") || null;
+}
+
+async function saveScoresToDB(teamCode, name, scores) {
+  const flat = flattenScores(scores);
+  const {error} = await supabase.from("profiles").insert({team_code: teamCode, name: name || "Anonym", scores: flat});
+  if (error) console.error("Supabase insert error:", error);
+  return !error;
+}
+
+async function loadTeamProfiles(teamCode) {
+  const {data, error} = await supabase.from("profiles").select("*").eq("team_code", teamCode).order("created_at", {ascending: true});
+  if (error) { console.error("Supabase select error:", error); return []; }
+  return data.map(row => ({name: row.name, scores: row.scores, id: row.id, created_at: row.created_at}));
+}
+
+// ── Theme ──
+const C = {
+  bg:"#0b1321", surface:"#111d2e", surfaceHi:"#162238",
+  border:"#1e3050", faint:"#1a2d42",
+  gold:"#c9921c", goldL:"#e4b84a", goldBg:"rgba(201,146,28,0.12)",
+  cream:"#e8ddc8", muted:"#6a7a8e",
+  blue:"#4d8fd4", coral:"#d46a5a", green:"#4a9e72",
+  violet:"#8a6ed4", amber:"#d4a03a", teal:"#3aabaa",
+  rose:"#c4607a", sky:"#3ab8c4", lime:"#7ab84a",
+};
+
+// ══ INSTRUMENT 1: TEAM ASSESSMENT (15 items, 3-point) ══
+const TA_ITEMS = [
+  {id:"ta01",d:"TR",q:"Teammitglieder sind leidenschaftlich und offen in ihren Diskussionen."},
+  {id:"ta02",d:"AC",q:"Teammitglieder sprechen Schwächen oder unproduktives Verhalten anderer direkt an."},
+  {id:"ta03",d:"CO",q:"Teammitglieder wissen, woran ihre Kolleg:innen arbeiten und wie sie zum Teamziel beitragen."},
+  {id:"ta04",d:"TR",q:"Teammitglieder entschuldigen sich schnell und aufrichtig, wenn sie etwas Unangemessenes gesagt oder getan haben."},
+  {id:"ta05",d:"RE",q:"Teammitglieder sind bereit, Opfer zu bringen (z.B. Budget, Zuständigkeit, Ressourcen) zum Wohle des Teams."},
+  {id:"ta06",d:"TR",q:"Teammitglieder geben offen ihre Schwächen und Fehler zu."},
+  {id:"ta07",d:"FC",q:"Teambesprechungen sind fesselnd und nicht langweilig."},
+  {id:"ta08",d:"CO",q:"Teammitglieder verlassen Meetings überzeugt, dass alle Kolleg:innen hinter den getroffenen Entscheidungen stehen — auch bei anfänglicher Uneinigkeit."},
+  {id:"ta09",d:"RE",q:"Die Teammoral leidet deutlich, wenn Teamziele nicht erreicht werden."},
+  {id:"ta10",d:"FC",q:"In Teambesprechungen werden die wichtigsten und schwierigsten Themen auf den Tisch gebracht."},
+  {id:"ta11",d:"AC",q:"Teammitglieder befürchten zutiefst, ihre Kolleg:innen zu enttäuschen."},
+  {id:"ta12",d:"TR",q:"Teammitglieder kennen das Privatleben der anderen und fühlen sich wohl, darüber zu sprechen."},
+  {id:"ta13",d:"CO",q:"Teammitglieder beenden Diskussionen mit klaren Beschlüssen und konkreten Handlungsschritten."},
+  {id:"ta14",d:"AC",q:"Teammitglieder hinterfragen gegenseitig ihre Pläne und Vorgehensweisen."},
+  {id:"ta15",d:"RE",q:"Teammitglieder suchen nicht nach Anerkennung für eigene Beiträge, weisen aber gerne auf die Verdienste anderer hin."},
+];
+const TA_DIMS = {
+  TR:{label:"Vertrauen",color:C.blue},
+  FC:{label:"Konfliktbereitschaft",color:C.amber},
+  CO:{label:"Verbindlichkeit",color:C.green},
+  AC:{label:"Verantwortlichkeit",color:C.coral},
+  RE:{label:"Ergebnisorientierung",color:C.violet},
+};
+
+// ══ INSTRUMENT 2: KOMMUNIKATIONSSTILE (24 items, 5-point) ══
+const CSI_ITEMS = [
+  {id:"csi01",d:"EX",q:"Ich spreche in Gruppen frei und unkompliziert über meine Gedanken."},
+  {id:"csi02",d:"EX",q:"Ich erzähle gerne Geschichten und Anekdoten, um meinen Standpunkt zu verdeutlichen."},
+  {id:"csi03",d:"EX",q:"Ich drücke mich lebhaft und mit viel Gestik aus."},
+  {id:"csi04",d:"EX",q:"In Gesprächen bin ich gesprächig und teile bereitwillig meine Meinungen."},
+  {id:"csi05",d:"PR",q:"Ich achte darauf, mich klar und strukturiert auszudrücken."},
+  {id:"csi06",d:"PR",q:"Ich wähle meine Worte sorgfältig und vermeide Mehrdeutigkeit."},
+  {id:"csi07",d:"PR",q:"Ich bereite wichtige Gespräche und Präsentationen gründlich vor."},
+  {id:"csi08",d:"PR",q:"Ich fasse komplexe Sachverhalte gerne in klaren Schritten zusammen."},
+  {id:"csi09",d:"VA",q:"Ich sage direkt, wenn ich anderer Meinung bin, auch wenn es unangenehm ist."},
+  {id:"csi10",d:"VA",q:"In Diskussionen kann ich scharf und bestimmt argumentieren."},
+  {id:"csi11",d:"VA",q:"Ich unterbreche andere, wenn ich etwas Wichtiges einzuwenden habe."},
+  {id:"csi12",d:"VA",q:"Ich scheue mich nicht, kritische Punkte direkt anzusprechen."},
+  {id:"csi13",d:"QU",q:"Ich hinterfrage Annahmen und Vorschläge anderer aktiv."},
+  {id:"csi14",d:"QU",q:"Ich stelle häufig Verständnisfragen, um sicherzugehen, dass ich alles richtig verstehe."},
+  {id:"csi15",d:"QU",q:"Ich ermutige andere, ihre Ideen genauer zu erklären und zu begründen."},
+  {id:"csi16",d:"QU",q:"Ich hake nach, wenn mir Erklärungen zu oberflächlich erscheinen."},
+  {id:"csi17",d:"EM",q:"Ich zeige meine Gefühle offen in Gesprächen."},
+  {id:"csi18",d:"EM",q:"Wenn mich etwas bewegt, merkt man das sofort an meiner Stimme und Mimik."},
+  {id:"csi19",d:"EM",q:"Ich reagiere emotional, wenn Themen mich persönlich betreffen."},
+  {id:"csi20",d:"EM",q:"Ich kann meine Begeisterung oder Frustration nur schwer verbergen."},
+  {id:"csi21",d:"IM",q:"Ich passe meinen Kommunikationsstil an mein Gegenüber an."},
+  {id:"csi22",d:"IM",q:"Ich achte darauf, welchen Eindruck ich in Gesprächen hinterlasse."},
+  {id:"csi23",d:"IM",q:"Ich formuliere meine Aussagen so, dass sie bei anderen gut ankommen."},
+  {id:"csi24",d:"IM",q:"Ich kann geschickt vermitteln, auch wenn ich innerlich anderer Meinung bin."},
+];
+const CSI_DIMS = {
+  EX:{label:"Expressivität",color:C.blue},
+  PR:{label:"Präzision",color:C.green},
+  VA:{label:"Verbale Durchsetzung",color:C.coral},
+  QU:{label:"Frageverhalten",color:C.violet},
+  EM:{label:"Emotionalität",color:C.amber},
+  IM:{label:"Impression Management",color:C.teal},
+};
+
+// ══ INSTRUMENT 3: PSYCHOLOGISCHE SICHERHEIT (7 items, 7-point) ══
+const PS_ITEMS = [
+  {id:"ps01",r:true,q:"Wenn ich in diesem Team einen Fehler mache, wird mir das vorgehalten."},
+  {id:"ps02",r:false,q:"Die Mitglieder dieses Teams können Probleme und schwierige Themen ansprechen."},
+  {id:"ps03",r:true,q:"Mitglieder dieses Teams lehnen andere manchmal ab, weil sie anders sind."},
+  {id:"ps04",r:false,q:"Es ist sicher, in diesem Team ein Risiko einzugehen."},
+  {id:"ps05",r:true,q:"Es ist schwierig, andere Mitglieder dieses Teams um Hilfe zu bitten."},
+  {id:"ps06",r:false,q:"Niemand in diesem Team würde absichtlich so handeln, dass es meine Bemühungen untergräbt."},
+  {id:"ps07",r:false,q:"In der Zusammenarbeit mit diesem Team werden meine einzigartigen Fähigkeiten und Talente wertgeschätzt und genutzt."},
+];
+
+// ══ INSTRUMENT 4: FEEDBACKORIENTIERUNG (20 items, 5-point) ══
+const FOS_ITEMS = [
+  {id:"fos01",s:"UT",q:"Feedback trägt zu meinem Erfolg bei der Arbeit bei."},
+  {id:"fos02",s:"UT",q:"Ich finde Feedback hilfreich, um meine Leistung zu verbessern."},
+  {id:"fos03",s:"UT",q:"Feedback gibt mir wertvolle Hinweise für meine berufliche Entwicklung."},
+  {id:"fos04",s:"UT",q:"Ich nutze Feedback aktiv, um meine Arbeitsweise anzupassen."},
+  {id:"fos05",s:"UT",q:"Konstruktives Feedback ist für mich ein wichtiges Lernwerkzeug."},
+  {id:"fos06",s:"AC",q:"Es liegt in meiner Verantwortung, Feedback zur Leistungsverbesserung umzusetzen."},
+  {id:"fos07",s:"AC",q:"Ich fühle mich verpflichtet, auf erhaltenes Feedback zu reagieren."},
+  {id:"fos08",s:"AC",q:"Wenn ich Feedback bekomme, nehme ich es mir zu Herzen und handle danach."},
+  {id:"fos09",s:"AC",q:"Ich sehe es als meine Pflicht an, Feedback in meine Arbeit einfließen zu lassen."},
+  {id:"fos10",s:"AC",q:"Ich übernehme Verantwortung für die Umsetzung von Rückmeldungen."},
+  {id:"fos11",s:"SA",q:"Feedback zeigt mir, wie ich von anderen wahrgenommen werde."},
+  {id:"fos12",s:"SA",q:"Durch Feedback verstehe ich besser, wie mein Verhalten auf andere wirkt."},
+  {id:"fos13",s:"SA",q:"Ich achte darauf, wie andere auf mein Verhalten reagieren."},
+  {id:"fos14",s:"SA",q:"Rückmeldungen von Kolleg:innen helfen mir, meine Wirkung auf andere einzuschätzen."},
+  {id:"fos15",s:"SA",q:"Ich bin aufmerksam für nonverbale Signale, die mir Feedback über mein Verhalten geben."},
+  {id:"fos16",s:"SE",q:"Ich fühle mich sicher im Umgang mit Feedback — auch wenn es kritisch ist."},
+  {id:"fos17",s:"SE",q:"Ich kann mit negativem Feedback umgehen, ohne mich persönlich angegriffen zu fühlen."},
+  {id:"fos18",s:"SE",q:"Ich bin in der Lage, Feedback sachlich zu reflektieren und daraus zu lernen."},
+  {id:"fos19",s:"SE",q:"Auch harsche Kritik bringt mich nicht aus der Fassung."},
+  {id:"fos20",s:"SE",q:"Ich kann zwischen der Sache und meiner Person unterscheiden, wenn ich Feedback erhalte."},
+];
+const FOS_DIMS = {
+  UT:{label:"Nützlichkeit",color:C.green},
+  AC:{label:"Verantwortlichkeit",color:C.blue},
+  SA:{label:"Soziale Aufmerksamkeit",color:C.violet},
+  SE:{label:"Selbstwirksamkeit",color:C.amber},
+};
+
+// ══ HELPER FUNCTIONS ══
+function pct(mean, scaleMin, scaleMax) {
+  if (scaleMax === scaleMin) return 0;
+  return Math.round(((mean - scaleMin) / (scaleMax - scaleMin)) * 100);
+}
+function meanOf(vals) { return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0; }
+
+function computeScores(ans) {
+  // Team Assessment (raw sum + pct)
+  const ta = {};
+  for (const [d,{label}] of Object.entries(TA_DIMS)) {
+    const vals = TA_ITEMS.filter(i=>i.d===d).map(i=>ans[i.id]).filter(v=>v!==undefined);
+    if (vals.length) {
+      const rawSum = vals.reduce((a,b)=>a+b,0);
+      ta[label] = {rawSum, pct: pct(rawSum, 3, 9)};
+    } else {
+      ta[label] = {rawSum: 0, pct: 0};
+    }
+  }
+
+  // CSI (percentage per dimension)
+  const csi = {};
+  for (const [d,{label}] of Object.entries(CSI_DIMS)) {
+    const vals = CSI_ITEMS.filter(i=>i.d===d).map(i=>ans[i.id]).filter(v=>v!==undefined);
+    csi[label] = vals.length ? pct(meanOf(vals), 1, 5) : 0;
+  }
+
+  // Psychologische Sicherheit (single percentage)
+  const psVals = PS_ITEMS.map(i=>{const r=ans[i.id]; return r!==undefined?(i.r?8-r:r):null;}).filter(v=>v!==null);
+  const ps = psVals.length ? pct(meanOf(psVals), 1, 7) : 0;
+
+  // Feedbackorientierung (percentage per subscale)
+  const fos = {};
+  for (const [s,{label}] of Object.entries(FOS_DIMS)) {
+    const vals = FOS_ITEMS.filter(i=>i.s===s).map(i=>ans[i.id]).filter(v=>v!==undefined);
+    fos[label] = vals.length ? pct(meanOf(vals), 1, 5) : 0;
+  }
+
+  return {ta, csi, ps, fos};
+}
+
+const scoreLabel = v => v<34?"niedrig":v<67?"mittel":"hoch";
+const scoreColor = v => v<34?C.blue:v<67?C.amber:C.green;
+
+// ══ INTERPRETATION TEXTS ══
+function getTAInterpretation(dim, pct) {
+  if (dim === "Vertrauen") {
+    if (pct < 34) return "Im Team fehlt es an grundlegendem Vertrauen. Teammitglieder zeigen sich verletzlich zu wenig, geben Fehler ungern zu und vermeiden persönliche Offenheit. Ohne Vertrauen als Fundament können die anderen Teamdimensionen nicht gedeihen.";
+    if (pct < 67) return "Es gibt ein gewisses Grundvertrauen, aber es ist noch nicht stabil genug, damit sich alle Teammitglieder vollständig öffnen können. Gezielte Team-Building-Maßnahmen könnten helfen.";
+    return "Ihr Team verfügt über ein starkes Vertrauensfundament. Teammitglieder fühlen sich sicher, Schwächen zuzugeben, um Hilfe zu bitten und sich verletzlich zu zeigen.";
+  }
+  if (dim === "Konfliktbereitschaft") {
+    if (pct < 34) return "Das Team scheut produktive Konflikte. Wichtige Themen werden vermieden, Meetings sind wenig engagiert, und es herrscht eine künstliche Harmonie. Das Team sollte lernen, dass leidenschaftliche Debatten über Ideen wertvoll sind.";
+    if (pct < 67) return "Es gibt teilweise offene Diskussionen, aber schwierige Themen werden noch nicht konsequent angesprochen. Hier gibt es Potenzial für mehr konstruktive Auseinandersetzung.";
+    return "Ihr Team pflegt eine Kultur produktiver Konflikte. Wichtige Themen werden offen angesprochen, und Meetings sind lebendig und engagiert.";
+  }
+  if (dim === "Verbindlichkeit") {
+    if (pct < 34) return "Teammitglieder tragen Entscheidungen nicht vollständig mit. Es fehlt an Klarheit über Prioritäten und Handlungsschritte. Mehrdeutigkeit und fehlendes Buy-in führen zu Verzögerungen.";
+    if (pct < 67) return "Entscheidungen werden grundsätzlich mitgetragen, aber es gibt noch Unsicherheiten bei der Umsetzung. Klarere Beschlüsse und explizites Commitment könnten helfen.";
+    return "Ihr Team zeichnet sich durch hohe Verbindlichkeit aus. Entscheidungen werden klar getroffen, von allen getragen und konsequent umgesetzt.";
+  }
+  if (dim === "Verantwortlichkeit") {
+    if (pct < 34) return "Teammitglieder sprechen sich gegenseitig nicht auf unproduktives Verhalten an. Es fehlt an gegenseitiger Rechenschaftspflicht, was zu sinkenden Standards führt.";
+    if (pct < 67) return "Es gibt ansatzweise gegenseitige Verantwortlichkeit, aber Teammitglieder zögern noch, einander direkt auf Probleme anzusprechen.";
+    return "Ihr Team lebt eine starke Kultur gegenseitiger Verantwortlichkeit. Teammitglieder sprechen Probleme direkt an und halten sich gegenseitig an hohen Standards.";
+  }
+  if (dim === "Ergebnisorientierung") {
+    if (pct < 34) return "Das Team verliert leicht den Fokus auf gemeinsame Ergebnisse. Individuelle Ziele, Status oder Ego stehen über dem Teamerfolg.";
+    if (pct < 67) return "Das Team hat grundsätzlich den Blick auf Ergebnisse, aber individuelle Interessen können manchmal überwiegen.";
+    return "Ihr Team ist stark ergebnisorientiert. Der gemeinsame Erfolg steht über individuellen Interessen und Statusdenken.";
+  }
+  return "";
+}
+
+function getCSIInterpretation(dim, pct) {
+  if (dim === "Expressivität") {
+    if (pct < 34) return "Sie drücken sich eher zurückhaltend aus und bevorzugen sorgfältig durchdachte Beiträge. Dies kann Sie als nachdenklich wirken lassen — achten Sie darauf, Ihre Gedanken auch tatsächlich zu teilen.";
+    if (pct < 67) return "Sie balancieren zwischen Offenheit und Reflexion. In vertrauten Settings kommunizieren Sie lebhaft, in formellen Situationen eher differenziert.";
+    return "Sie kommunizieren offen und enthusiastisch. Dies bringt Energie in Meetings — achten Sie darauf, auch weniger redseligen Kolleg:innen Raum zu geben.";
+  }
+  if (dim === "Präzision") {
+    if (pct < 34) return "Sie bevorzugen freie, spontane Kommunikation. Dies fördert Kreativität, aber Details und Klarheit können manchmal verloren gehen.";
+    if (pct < 67) return "Sie balancieren zwischen Struktur und Flexibilität. Sie können sowohl detailliert als auch im breiten Überblick kommunizieren.";
+    return "Sie kommunizieren sehr präzise und strukturiert. Ihre Klarheit ist wertvoll für komplexe Themen — achten Sie darauf, nicht zu detailliert zu werden.";
+  }
+  if (dim === "Verbale Durchsetzung") {
+    if (pct < 34) return "Sie bevorzugen diplomatische, eher vorsichtige Kommunikation. Dies fördert Harmonie, aber wichtige kritische Punkte könnten übersehen werden.";
+    if (pct < 67) return "Sie können direkt kommunizieren, ohne dabei unnötig zu verletzen. Diese Balance ist wertvoll für kritisches Feedback.";
+    return "Sie kommunizieren sehr direkt und assertiv. Dies ist wertvoll für klare Positionierung — achten Sie auf die emotionalen Reaktionen anderer.";
+  }
+  if (dim === "Frageverhalten") {
+    if (pct < 34) return "Sie hinterfragen eher wenig und vertrauen auf die Informationen, die Sie erhalten. Dies kann zu schnelleren Entscheidungen führen — achten Sie aber auf blinde Flecken.";
+    if (pct < 67) return "Sie stellen gezielt Fragen und hinterfragen kritisch, ohne dabei zu skeptisch zu sein.";
+    return "Sie stellen viele Fragen und hinterfragen aktiv. Dies fördert Lernkulturen — achten Sie darauf, andere nicht zu überfordern.";
+  }
+  if (dim === "Emotionalität") {
+    if (pct < 34) return "Sie bleiben emotional eher neutral und sachlich. Dies hilft in objektiven Diskussionen — achten Sie darauf, emotionale Signale anderer nicht zu übersehen.";
+    if (pct < 67) return "Sie zeigen emotionale Reaktionen situationsabhängig. Dies ermöglicht authentische Verbindung, ohne dabei die Sachlichkeit zu verlieren.";
+    return "Sie zeigen Ihre Gefühle offen. Dies schafft Authentizität — achten Sie darauf, dass emotionale Reaktionen nicht die Sachlichkeit überlagern.";
+  }
+  if (dim === "Impression Management") {
+    if (pct < 34) return "Sie kommunizieren sehr authentisch und passen sich kaum an. Dies schafft Glaubwürdigkeit — achten Sie aber darauf, wie Ihre Botschaften ankommen.";
+    if (pct < 67) return "Sie passen Ihren Stil situationsgerecht an, ohne dabei unglaubwürdig zu werden.";
+    return "Sie sind sehr geschickt darin, Ihre Kommunikation anzupassen. Dies ist wertvoll für Vermittlung — achten Sie darauf, nicht als manipulativ wahrgenommen zu werden.";
+  }
+  return "";
+}
+
+function getPSInterpretation(pct) {
+  if (pct < 34) return "Die psychologische Sicherheit in Ihrem Team ist gering. Teammitglieder befürchten negative Konsequenzen, wenn sie Risiken eingehen, Fehler zugeben oder abweichende Meinungen äußern. Dies hemmt Innovation und offene Kommunikation erheblich.";
+  if (pct < 67) return "Die psychologische Sicherheit ist teilweise vorhanden, aber nicht stabil. In manchen Situationen fühlen sich Teammitglieder sicher, in anderen nicht. Gezielte Maßnahmen zur Stärkung des Vertrauens und der Offenheit könnten helfen.";
+  return "Ihr Team verfügt über hohe psychologische Sicherheit. Teammitglieder fühlen sich sicher, Risiken einzugehen, Fehler zuzugeben und ihre Meinung offen zu äußern. Dies ist eine exzellente Grundlage für Innovation und Lernen.";
+}
+
+function getFOSInterpretation(dim, pct) {
+  if (dim === "Nützlichkeit") {
+    if (pct < 34) return "Sie sehen Feedback als wenig hilfreich für Ihre Entwicklung. Dies könnte Sie von wertvollen Lernmöglichkeiten abschneiden.";
+    if (pct < 67) return "Sie erkennen den Wert von Feedback, könnten es aber konsequenter für Ihre Entwicklung nutzen.";
+    return "Sie schätzen Feedback als wichtiges Werkzeug für Ihre Entwicklung. Dies fördert kontinuierliches Lernen.";
+  }
+  if (dim === "Verantwortlichkeit") {
+    if (pct < 34) return "Sie sehen es nicht als Ihre Verantwortung an, Feedback umzusetzen. Dies kann zu Stagnation führen.";
+    if (pct < 67) return "Sie nehmen Feedback teilweise ernst, könnten aber konsequenter an der Umsetzung arbeiten.";
+    return "Sie übernehmen volle Verantwortung für die Umsetzung von Feedback. Dies ist wertvoll für Ihre Glaubwürdigkeit.";
+  }
+  if (dim === "Soziale Aufmerksamkeit") {
+    if (pct < 34) return "Sie nehmen wenig wahr, wie Ihr Verhalten auf andere wirkt. Dies könnte zu Missverständnissen führen.";
+    if (pct < 67) return "Sie sind aufmerksam für Ihre Wirkung auf andere, könnten aber noch feinfühliger werden.";
+    return "Sie sind sehr aufmerksam dafür, wie Ihr Verhalten andere beeinflusst. Dies hilft bei beziehungsorientierter Zusammenarbeit.";
+  }
+  if (dim === "Selbstwirksamkeit") {
+    if (pct < 34) return "Sie fühlen sich im Umgang mit (kritischem) Feedback unsicher. Dies könnte Abwehrreaktionen fördern.";
+    if (pct < 67) return "Sie können meist konstruktiv mit Feedback umgehen, reagieren aber manchmal defensiv.";
+    return "Sie gehen sicher mit Feedback um und können es sachlich einordnen. Dies fördert eine Lernkultur.";
+  }
+  return "";
+}
+
+// ══ PDF GENERATION ══
+function generatePDF(scores, name, date, setStatus) {
+  try {
+    setStatus("building");
+    buildPDF(name||"Reflexionsprofil", date, scores);
+    setStatus("done");
+    setTimeout(()=>setStatus("idle"), 3500);
+  } catch(err) {
+    console.error(err);
+    setStatus("error");
+    setTimeout(()=>setStatus("idle"), 4000);
+  }
+}
+
+function buildPDF(name, date, scores) {
+  const {jsPDF} = window;
+  const doc = new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+  const w = doc.internal.pageSize.getWidth();
+  const h = doc.internal.pageSize.getHeight();
+  let y = 15;
+
+  const addLine = ()=>{ doc.setLineWidth(0.5); doc.setDrawColor("#1e3050"); doc.line(14, y, w-14, y); y += 4; };
+  const addTitle = (text,size,color)=>{ doc.setFontSize(size); doc.setTextColor(color||"#e8ddc8"); doc.text(text, 14, y); y += size/2.5; };
+  const addText = (text,size,color)=>{ doc.setFontSize(size); doc.setTextColor(color||"#6a7a8e"); doc.text(text, 14, y, {maxWidth:w-28}); y += doc.getTextDimensions(text).h+2; };
+
+  doc.setFillColor(11, 19, 33);
+  doc.rect(0, 0, w, h, "F");
+
+  addTitle("Team-Reflexion · Kommunikationsprofil", 20, "#c9921c");
+  addText(`Profil: ${name}`, 10, "#e8ddc8");
+  addText(`Erstellungsdatum: ${date}`, 9, "#6a7a8e");
+  addLine();
+
+  // Team Assessment
+  addTitle("Instrument 1: Team Assessment", 14, "#4d8fd4");
+  addText("5 Dimensionen der Teameffektivität", 9, "#6a7a8e");
+  y += 4;
+  for (const [dim, score] of Object.entries(scores.ta)) {
+    const interpretation = getTAInterpretation(dim, score.pct);
+    addText(`${dim}: ${score.rawSum}/9 (${score.pct}%)`, 10, score.pct < 34 ? "#d46a5a" : score.pct < 67 ? "#d4a03a" : "#4a9e72");
+    addText(interpretation, 8, "#6a7a8e");
+    y += 2;
+  }
+  addLine();
+
+  // CSI
+  addTitle("Instrument 2: Kommunikationsstile", 14, "#4a9e72");
+  addText("Konzeptuell inspiriert von de Vries et al. (2013)", 9, "#6a7a8e");
+  y += 4;
+  for (const [dim, pct] of Object.entries(scores.csi)) {
+    const interpretation = getCSIInterpretation(dim, pct);
+    addText(`${dim}: ${pct}%`, 10, pct < 34 ? "#d46a5a" : pct < 67 ? "#d4a03a" : "#4a9e72");
+    addText(interpretation, 8, "#6a7a8e");
+    y += 2;
+  }
+  addLine();
+
+  // PS
+  addTitle("Instrument 3: Psychologische Sicherheit", 14, "#3ab8c4");
+  addText("Original · Frei verfügbar (Edmondson, 1999)", 9, "#6a7a8e");
+  y += 4;
+  const psInterpretation = getPSInterpretation(scores.ps);
+  addText(`Gesamt: ${scores.ps}%`, 10, scores.ps < 34 ? "#d46a5a" : scores.ps < 67 ? "#d4a03a" : "#4a9e72");
+  addText(psInterpretation, 8, "#6a7a8e");
+  addLine();
+
+  // FOS
+  addTitle("Instrument 4: Feedbackorientierung", 14, "#7ab84a");
+  addText("Konzeptuell inspiriert von Linderbaum & Levy (2010)", 9, "#6a7a8e");
+  y += 4;
+  for (const [dim, pct] of Object.entries(scores.fos)) {
+    const interpretation = getFOSInterpretation(dim, pct);
+    addText(`${dim}: ${pct}%`, 10, pct < 34 ? "#d46a5a" : pct < 67 ? "#d4a03a" : "#4a9e72");
+    addText(interpretation, 8, "#6a7a8e");
+    y += 2;
+  }
+
+  doc.save(`TeamReflexion_${(name||"Profil").replace(/\s+/g,"_")}.pdf`);
+}
+
+// ══ CSV EXPORT ══
+function scoresToCSV(name, scores) {
+  const rows = [["Kategorie","Dimension","Wert"]];
+  for (const [dim,{pct}] of Object.entries(scores.ta)) rows.push(["Team Assessment",dim,pct]);
+  for (const [dim,val] of Object.entries(scores.csi)) rows.push(["CSI",dim,val]);
+  rows.push(["Psychologische Sicherheit","Gesamt",scores.ps]);
+  for (const [dim,val] of Object.entries(scores.fos)) rows.push(["Feedbackorientierung",dim,val]);
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
+  const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Scores_${(name||"Profil").replace(/\s+/g,"_")}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ══ FLAT SCORES FOR SUPABASE ══
+function flattenScores(scores) {
+  const flat = {};
+  for (const [dim,{pct}] of Object.entries(scores.ta)) flat["TA_"+dim] = pct;
+  for (const [dim,val] of Object.entries(scores.csi)) flat["CSI_"+dim] = val;
+  flat["PS_Gesamt"] = scores.ps;
+  for (const [dim,val] of Object.entries(scores.fos)) flat["FOS_"+dim] = val;
+  return flat;
+}
+
+function parseCSV(text) {
+  const lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n").filter(l=>l.trim());
+  if (lines.length < 2) return null;
+  const rows = lines.slice(1).map(l => {
+    const cells = [];
+    let cur = "", inQ = false;
+    for (let i = 0; i < l.length; i++) {
+      const ch = l[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if ((ch === ';' || ch === ',') && !inQ) { cells.push(cur.trim()); cur = ""; continue; }
+      cur += ch;
+    }
+    cells.push(cur.trim());
+    return cells;
+  });
+  const flat = {};
+  for (const [cat,dim,val] of rows) {
+    const key = cat.replace(/[.\s-]+/g,"_") + "_" + dim.replace(/[()–\s]+/g,"_").replace(/_+$/,"");
+    flat[key] = parseFloat(val) || 0;
+  }
+  return flat;
+}
+
+// ══ FACILITATOR VIEW ══
+function FacilitatorView({onBack, teamCode: initialTeamCode}) {
+  const [profiles, setProfiles] = useState([]);
+  const [teamCode, setTeamCode] = useState(initialTeamCode || "");
+  const [inputCode, setInputCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef(null);
+
+  const loadProfiles = async (code) => {
+    if (!code) return;
+    setLoading(true);
+    const data = await loadTeamProfiles(code);
+    setProfiles(data.map(d => ({name: d.name, scores: d.scores, id: d.id, created_at: d.created_at})));
+    setLoading(false);
+  };
+
+  useEffect(() => { if (teamCode) loadProfiles(teamCode); }, [teamCode]);
+
+  useEffect(() => {
+    if (!teamCode || !autoRefresh) return;
+    const interval = setInterval(() => loadProfiles(teamCode), 15000);
+    return () => clearInterval(interval);
+  }, [teamCode, autoRefresh]);
+
+  const addFiles = (files) => {
+    Array.from(files).forEach(f => {
+      if (!f.name.endsWith('.csv')) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const flat = parseCSV(e.target.result);
+        if (flat) {
+          const name = f.name.replace(/^Scores_/,"").replace(/\.csv$/,"").replace(/_/g," ");
+          setProfiles(p => [...p, {name, scores: flat, id: Date.now()+Math.random()}]);
+        }
+      };
+      reader.readAsText(f);
+    });
+  };
+
+  const generateCode = () => {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let code = "";
+    for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random()*chars.length)];
+    setTeamCode(code);
+    setProfiles([]);
+  };
+
+  const [copied, setCopied] = useState(false);
+  const teamLink = teamCode ? `${window.location.origin}${window.location.pathname}?team=${teamCode}` : "";
+  const copyLink = () => {
+    navigator.clipboard.writeText(teamLink).then(() => { setCopied(true); setTimeout(()=>setCopied(false), 2000); });
+  };
+
+  const removeProfile = (id) => setProfiles(p => p.filter(x => x.id !== id));
+
+  const agg = profiles.length > 1 ? (() => {
+    const keys = Object.keys(profiles[0].scores);
+    const result = {};
+    for (const k of keys) {
+      const vals = profiles.map(p => p.scores[k] || 0);
+      const mean = vals.reduce((a,b)=>a+b,0) / vals.length;
+      const sd = Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0) / vals.length);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      result[k] = {mean: Math.round(mean), sd: Math.round(sd*10)/10, min, max, vals};
+    }
+    return result;
+  })() : null;
+
+  const groupKeys = (agg) => {
+    if (!agg) return [];
+    const groups = {};
+    for (const k of Object.keys(agg)) {
+      const prefix = k.split("_")[0];
+      const label = {TA:"Team Assessment",CSI:"Kommunikationsstile",PS:"Psychologische Sicherheit",FOS:"Feedbackorientierung"}[prefix] || prefix;
+      const color = {TA:C.blue,CSI:C.green,PS:C.sky,FOS:C.lime}[prefix] || C.cream;
+      if (!groups[prefix]) groups[prefix] = {label, color, dims: []};
+      const dimName = k.replace(prefix+"_","").replace(/_/g," ");
+      groups[prefix].dims.push({key: k, dim: dimName, ...agg[k]});
+    }
+    return Object.values(groups);
+  };
+
+  const exportTeamCSV = () => {
+    if (!agg) return;
+    const header = ["Dimension", ...profiles.map(p=>p.name), "M", "SD", "Min", "Max"];
+    const rows = [header];
+    for (const [k, v] of Object.entries(agg)) {
+      const dimName = k.replace(/_/g," ");
+      rows.push([dimName, ...v.vals.map(String), v.mean, v.sd, v.min, v.max]);
+    }
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "Team_Aggregation.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const groups = groupKeys(agg);
+
+  const taRadar = agg ? Object.keys(agg).filter(k=>k.startsWith("TA_")).map(k=>({
+    subject: k.replace("TA_",""), Mittelwert: agg[k].mean, Min: agg[k].min, Max: agg[k].max
+  })) : [];
+
+  const csiRadar = agg ? Object.keys(agg).filter(k=>k.startsWith("CSI_")).map(k=>({
+    subject: k.replace("CSI_",""), Mittelwert: agg[k].mean
+  })) : [];
+
+  return (
+    <div style={{maxWidth:800,margin:"0 auto",padding:"0 14px",paddingBottom:60}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
+        <button onClick={onBack} style={{padding:"8px 14px",borderRadius:7,background:C.faint,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",fontSize:12,fontWeight:600}}>← Zurück</button>
+        <div>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:22,color:C.cream,margin:0}}>Facilitator-Ansicht</h1>
+          <p style={{color:C.muted,fontSize:11,margin:0}}>Team-Aggregation · Live aus der Datenbank · oder CSV-Upload</p>
+        </div>
+      </div>
+
+      {!teamCode ? (
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px",marginBottom:20}}>
+          <div style={{color:C.goldL,fontWeight:700,fontSize:14,marginBottom:14}}>Workshop-Team erstellen oder beitreten</div>
+          <button onClick={generateCode} style={{width:"100%",padding:"13px",borderRadius:9,background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:"#000",fontWeight:700,fontSize:13,border:"none",cursor:"pointer",marginBottom:14}}>Neuen Team-Code generieren</button>
+          <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Oder bestehenden Code eingeben:</div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={inputCode} onChange={e=>setInputCode(e.target.value)} placeholder="z.B. ab3kx92m" style={{flex:1,padding:"10px 14px",borderRadius:8,background:C.faint,border:`1px solid ${C.border}`,color:C.cream,fontSize:13,outline:"none"}}/>
+            <button onClick={()=>{if(inputCode.trim())setTeamCode(inputCode.trim());}} style={{padding:"10px 18px",borderRadius:8,background:C.blue,color:"#fff",fontWeight:600,fontSize:12,border:"none",cursor:"pointer"}}>Laden</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px",marginBottom:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <div style={{color:C.muted,fontSize:10,marginBottom:2}}>Team-Code</div>
+              <div style={{color:C.goldL,fontWeight:700,fontSize:18,fontFamily:"monospace"}}>{teamCode}</div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>loadProfiles(teamCode)} style={{padding:"8px 14px",borderRadius:7,background:C.faint,border:`1px solid ${C.border}`,color:C.cream,fontSize:11,fontWeight:600,cursor:"pointer"}}>{loading ? "Lädt..." : "Aktualisieren"}</button>
+              <button onClick={()=>{setTeamCode("");setProfiles([]);}} style={{padding:"8px 14px",borderRadius:7,background:C.faint,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>Anderes Team</button>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+            <input value={teamLink} readOnly style={{flex:1,padding:"8px 12px",borderRadius:7,background:C.faint,border:`1px solid ${C.border}`,color:C.cream,fontSize:11,outline:"none"}}/>
+            <button onClick={copyLink} style={{padding:"8px 14px",borderRadius:7,background:copied?C.green+"33":C.blue+"22",border:`1px solid ${copied?C.green:C.blue}44`,color:copied?C.green:C.blue,fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{copied ? "Kopiert!" : "Link kopieren"}</button>
+          </div>
+          <p style={{color:C.muted,fontSize:10,margin:0,lineHeight:1.5}}>Diesen Link an Teilnehmende senden. Nach dem Ausfüllen werden die Scores automatisch gespeichert und hier angezeigt. Auto-Refresh: alle 15 Sek.</p>
+        </div>
+      )}
+
+      {profiles.length > 0 && (
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px",marginBottom:20}}>
+          <div style={{color:C.goldL,fontWeight:700,fontSize:12,marginBottom:10}}>Eingegangene Profile ({profiles.length})</div>
+          {profiles.map(p=>(
+            <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:C.faint,borderRadius:7,marginBottom:5}}>
+              <span style={{color:C.cream,fontSize:12}}>👤 {p.name}</span>
+              <span style={{color:C.muted,fontSize:10}}>{p.created_at ? new Date(p.created_at).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {teamCode && profiles.length < 2 && (
+        <div style={{background:C.goldBg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"14px",marginBottom:20}}>
+          <p style={{color:C.cream,fontSize:12,margin:0,lineHeight:1.6}}>
+            Warte auf mindestens <strong>2 Profile</strong>, um die Team-Aggregation zu sehen. Die Seite aktualisiert sich automatisch alle 15 Sekunden.
+          </p>
+        </div>
+      )}
+
+      {!teamCode && (<div
+        onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+        onDragLeave={()=>setDragOver(false)}
+        onDrop={e=>{e.preventDefault();setDragOver(false);addFiles(e.dataTransfer.files);}}
+        onClick={()=>fileRef.current?.click()}
+        style={{background:dragOver?C.goldBg:C.surface,border:`2px dashed ${dragOver?C.gold:C.border}`,borderRadius:12,padding:"24px 20px",textAlign:"center",cursor:"pointer",marginBottom:20,transition:"all 0.2s"}}
+      >
+        <input ref={fileRef} type="file" accept=".csv" multiple onChange={e=>addFiles(e.target.files)} style={{display:"none"}}/>
+        <div style={{fontSize:22,marginBottom:6}}>📂</div>
+        <div style={{color:C.cream,fontWeight:600,fontSize:12,marginBottom:3}}>Oder: CSV-Dateien manuell hochladen</div>
+        <p style={{color:C.muted,fontSize:10,margin:0}}>Fallback-Option ohne Datenbank</p>
+      </div>)}
+
+      {agg && (<>
+        <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+          <button onClick={exportTeamCSV} style={{padding:"11px 18px",borderRadius:9,background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:"#000",fontWeight:700,fontSize:12,border:"none",cursor:"pointer"}}>⬇ Team-CSV exportieren</button>
+          <div style={{background:C.surfaceHi,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 14px",color:C.muted,fontSize:11}}>
+            n = {profiles.length} Profile
+          </div>
+        </div>
+
+        {taRadar.length > 0 && (
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <div style={{width:4,height:16,background:C.blue,borderRadius:2}}/>
+              <h3 style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:C.cream,margin:0}}>Team-Radar: Team Assessment (Mittelwerte)</h3>
+            </div>
+            <div style={{height:220}}>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={taRadar}>
+                  <PolarGrid stroke={C.border}/>
+                  <PolarAngleAxis dataKey="subject" tick={{fill:C.muted,fontSize:9}}/>
+                  <PolarRadiusAxis domain={[0,100]} tick={{fill:C.faint}} tickCount={5}/>
+                  <Radar dataKey="Mittelwert" fill={C.blue} fillOpacity={0.25} stroke={C.blue} strokeWidth={2} dot={{fill:C.blue,r:3}}/>
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {csiRadar.length > 0 && (
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <div style={{width:4,height:16,background:C.green,borderRadius:2}}/>
+              <h3 style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:C.cream,margin:0}}>Team-Radar: Kommunikationsstile (Mittelwerte)</h3>
+            </div>
+            <div style={{height:220}}>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={csiRadar}>
+                  <PolarGrid stroke={C.border}/>
+                  <PolarAngleAxis dataKey="subject" tick={{fill:C.muted,fontSize:9}}/>
+                  <PolarRadiusAxis domain={[0,100]} tick={{fill:C.faint}} tickCount={5}/>
+                  <Radar dataKey="Mittelwert" fill={C.green} fillOpacity={0.25} stroke={C.green} strokeWidth={2} dot={{fill:C.green,r:3}}/>
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {groups.map(g=>(
+          <div key={g.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+              <div style={{width:4,height:16,background:g.color,borderRadius:2}}/>
+              <h3 style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:C.cream,margin:0}}>{g.label}</h3>
+            </div>
+            {g.dims.map(d=>(
+              <div key={d.key} style={{marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <span style={{color:C.cream,fontSize:12,fontWeight:500}}>{d.dim}</span>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{color:C.muted,fontSize:10}}>SD {d.sd}</span>
+                    <span style={{color:C.muted,fontSize:10}}>Min {d.min}</span>
+                    <span style={{color:C.muted,fontSize:10}}>Max {d.max}</span>
+                    <span style={{background:g.color+"33",color:g.color,border:`1px solid ${g.color}66`,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:600}}>M = {d.mean}%</span>
+                  </div>
+                </div>
+                <div style={{position:"relative",height:10,background:C.faint,borderRadius:5,overflow:"visible"}}>
+                  <div style={{position:"absolute",left:`${d.min}%`,right:`${100-d.max}%`,height:"100%",background:g.color+"33",borderRadius:5}}/>
+                  <div style={{position:"absolute",left:`${d.mean}%`,top:-2,width:4,height:14,background:g.color,borderRadius:2,transform:"translateX(-2px)"}}/>
+                  {d.vals.map((v,i)=>(
+                    <div key={i} style={{position:"absolute",left:`${v}%`,top:2,width:6,height:6,borderRadius:"50%",background:C.cream+"88",border:`1px solid ${g.color}`,transform:"translateX(-3px)"}}/>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+
+        <div style={{background:C.goldBg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"14px",marginBottom:20}}>
+          <div style={{color:C.goldL,fontWeight:700,fontSize:11,marginBottom:6}}>💡 Interpretationshinweise</div>
+          <p style={{color:C.cream,fontSize:11,margin:0,lineHeight:1.7}}>
+            Hohe SD-Werte (> 15) deuten auf heterogene Teamprofile hin — hier lohnt sich die Diskussion im Workshop besonders.
+            Achte auf Dimensionen, bei denen der Bereich (Min–Max) sehr breit ist: Das sind potenzielle Quellen für Kommunikationskonflikte.
+            Nutze den Team-CSV-Export für vertiefende Analysen in R oder SPSS.
+          </p>
+        </div>
+      </>)}
+    </div>
+  );
+}
+
+// ══ UI COMPONENTS ══
+function LikertItem({idx,item,value,onChange,minVal,maxVal,reversed}) {
+  const opts = Array.from({length:maxVal-minVal+1},(_,i)=>i+minVal);
+  return (
+    <div style={{background:value!==undefined?C.surfaceHi:C.surface,border:`1px solid ${value!==undefined?C.border:C.faint}`,borderRadius:9,padding:"12px 14px",marginBottom:7,transition:"all 0.2s"}}>
+      <div style={{display:"flex",gap:9,alignItems:"flex-start"}}>
+        <span style={{color:C.gold,fontWeight:700,fontSize:11,minWidth:22,paddingTop:2}}>{idx}.</span>
+        <div style={{flex:1}}>
+          <p style={{color:C.cream,fontSize:13,lineHeight:1.6,margin:0}}>{item.q}</p>
+          {reversed&&<span style={{color:C.muted,fontSize:9,marginTop:2,display:"inline-block"}}>↻ Umkehritem</span>}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:10,paddingLeft:31,flexWrap:"wrap"}}>
+        {opts.map(opt=>(
+          <button key={opt} onClick={()=>onChange(item.id,opt)} style={{width:32,height:32,borderRadius:"50%",border:`2px solid ${value===opt?C.gold:C.border}`,background:value===opt?C.gold:"transparent",color:value===opt?"#000":C.muted,fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.15s",flexShrink:0}}>{opt}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScaleLegend({low,high,min,max}) {
+  return (
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.faint,borderRadius:7,padding:"7px 12px",marginBottom:14}}>
+      <span style={{color:C.muted,fontSize:11}}>{min} = {low}</span>
+      <div style={{display:"flex",gap:5}}>
+        {Array.from({length:max-min+1},(_,i)=>i+min).map(n=>(
+          <div key={n} style={{width:24,height:24,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:10,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center"}}>{n}</div>
+        ))}
+      </div>
+      <span style={{color:C.muted,fontSize:11}}>{max} = {high}</span>
+    </div>
+  );
+}
+
+function ResultBar({label,value,color}) {
+  const bc = scoreColor(value);
+  return (
+    <div style={{marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+        <span style={{color:C.cream,fontSize:12,fontWeight:500}}>{label}</span>
+        <span style={{background:bc+"33",color:bc,border:`1px solid ${bc}66`,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:600}}>{value}% · {scoreLabel(value)}</span>
+      </div>
+      <div style={{height:6,background:C.faint,borderRadius:3,overflow:"hidden"}}>
+        <div style={{width:`${value}%`,height:"100%",background:`linear-gradient(90deg,${color},${color}bb)`,borderRadius:3}}/>
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({badge,title,sub,color,original}) {
+  return (
+    <div style={{marginBottom:18}}>
+      <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap",marginBottom:7}}>
+        <div style={{background:color+"22",border:`1px solid ${color}55`,color,borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>{badge}</div>
+        {original
+          ? <span style={{background:"rgba(74,158,114,0.2)",border:"1px solid rgba(74,158,114,0.5)",color:C.green,borderRadius:5,padding:"2px 7px",fontSize:9,fontWeight:700}}>✓ Original · Frei verfügbar</span>
+          : <span style={{background:"rgba(201,146,28,0.12)",border:"1px solid rgba(201,146,28,0.4)",color:C.goldL,borderRadius:5,padding:"2px 7px",fontSize:9,fontWeight:700}}>⚠ Konzeptuell inspiriert</span>}
+      </div>
+      <h2 style={{color:C.cream,fontSize:19,fontWeight:700,margin:"0 0 4px",fontFamily:"Georgia,serif"}}>{title}</h2>
+      {sub&&<p style={{color:C.muted,fontSize:11,margin:0,fontStyle:"italic"}}>{sub}</p>}
+    </div>
+  );
+}
+
+function ProgressBar({step}) {
+  const steps = ["Team", "Komm.", "Psych.S.", "FOS"];
+  return (
+    <div style={{display:"flex",gap:3,marginBottom:22,alignItems:"center"}}>
+      {steps.map((s,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"center",flex:i<steps.length-1?1:"none"}}>
+          <div style={{width:24,height:24,borderRadius:"50%",flexShrink:0,background:i<step-1?C.green:i===step-1?C.gold:C.faint,border:`2px solid ${i<step-1?C.green:i===step-1?C.gold:C.border}`,color:i<step-1?"#fff":i===step-1?"#000":C.muted,fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            {i<step-1?"✓":i+1}
+          </div>
+          <span style={{color:i===step-1?C.goldL:C.muted,fontSize:9,marginLeft:3,whiteSpace:"nowrap"}}>{s}</span>
+          {i<steps.length-1&&<div style={{flex:1,height:2,background:i<step-1?C.green+"66":C.faint,marginLeft:3}}/>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NextBtn({ready,count,onClick,label,color}) {
+  return (
+    <button onClick={()=>ready&&onClick()} disabled={!ready} style={{width:"100%",padding:"13px",borderRadius:9,marginTop:10,background:ready?(color?`linear-gradient(135deg,${color},${color}cc)`:`linear-gradient(135deg,${C.gold},${C.goldL})`):C.faint,color:ready?"#000":C.muted,fontWeight:700,fontSize:13,border:"none",cursor:ready?"pointer":"default",transition:"all 0.2s"}}>
+      {ready?label:`Noch ${count} Frage(n) offen`}
+    </button>
+  );
+}
+
+// ══ RESULTS PREVIEW ══
+function ResultsPreview({scores}) {
+  const block = (accent,title,children) => (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        <div style={{width:4,height:16,background:accent,borderRadius:2}}/>
+        <h3 style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:C.cream,margin:0}}>{title}</h3>
+      </div>
+      {children}
+    </div>
+  );
+
+  return (
+    <div>
+      {block(C.blue,"Team Assessment · 5 Dimensionen",
+        Object.entries(scores.ta).map(([d,{pct}]) => (
+          <div key={d}>
+            <ResultBar label={d} value={pct} color={TA_DIMS[Object.keys(TA_DIMS).find(k=>TA_DIMS[k].label===d)].color}/>
+            <p style={{color:C.muted,fontSize:10,margin:"4px 0 8px 0",lineHeight:1.5}}>{getTAInterpretation(d,pct)}</p>
+          </div>
+        ))
+      )}
+      {block(C.green,"Kommunikationsstile · 6 Dimensionen",
+        Object.entries(scores.csi).map(([d,pct]) => (
+          <div key={d}>
+            <ResultBar label={d} value={pct} color={CSI_DIMS[Object.keys(CSI_DIMS).find(k=>CSI_DIMS[k].label===d)].color}/>
+            <p style={{color:C.muted,fontSize:10,margin:"4px 0 8px 0",lineHeight:1.5}}>{getCSIInterpretation(d,pct)}</p>
+          </div>
+        ))
+      )}
+      {block(C.sky,"Psychologische Sicherheit",
+        <div>
+          <ResultBar label="Gesamt" value={scores.ps} color={C.sky}/>
+          <p style={{color:C.muted,fontSize:10,margin:"4px 0 0 0",lineHeight:1.5}}>{getPSInterpretation(scores.ps)}</p>
+        </div>
+      )}
+      {block(C.lime,"Feedbackorientierung · 4 Dimensionen",
+        Object.entries(scores.fos).map(([d,pct]) => (
+          <div key={d}>
+            <ResultBar label={d} value={pct} color={FOS_DIMS[Object.keys(FOS_DIMS).find(k=>FOS_DIMS[k].label===d)].color}/>
+            <p style={{color:C.muted,fontSize:10,margin:"4px 0 8px 0",lineHeight:1.5}}>{getFOSInterpretation(d,pct)}</p>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ══ MAIN APP ══
+function App() {
+  const urlTeamCode = getTeamCode();
+  const urlView = new URLSearchParams(window.location.search).get("view");
+  const [step, setStep] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [name, setName] = useState("");
+  const [pdfStatus, setPdfStatus] = useState("idle");
+  const [mode, setMode] = useState(urlView === "facilitator" ? "facilitator" : "survey");
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const topRef = useRef(null);
+
+  const scores = step === 5 ? computeScores(answers) : null;
+  const today = new Date().toLocaleDateString("de-DE",{day:"2-digit",month:"long",year:"numeric"});
+
+  useEffect(() => {
+    if (step === 5 && scores && urlTeamCode && saveStatus === "idle") {
+      setSaveStatus("saving");
+      saveScoresToDB(urlTeamCode, name, scores).then(ok => {
+        setSaveStatus(ok ? "saved" : "error");
+      });
+    }
+  }, [step, scores, urlTeamCode, saveStatus]);
+
+  if (mode === "facilitator") return <FacilitatorView onBack={()=>setMode("survey")} teamCode={urlTeamCode} />;
+
+  const handlePDF = useCallback(()=>{
+    if(pdfStatus!=="idle"||!scores) return;
+    generatePDF(scores, name||"Reflexionsprofil", today, setPdfStatus);
+  },[pdfStatus,scores,name,today]);
+
+  const setAns = (id,v) => setAnswers(p=>({...p,[id]:v}));
+  const allDone = items => items.every(i=>answers[i.id]!==undefined);
+  const go = n => { setStep(n); setTimeout(()=>topRef.current?.scrollIntoView({behavior:"smooth"}),50); };
+
+  const PDF_BTN_LABELS = {
+    idle:       "⬇ PDF erstellen & herunterladen",
+    building:   "📄 PDF wird aufgebaut …",
+    done:       "✓ PDF erfolgreich gespeichert!",
+    error:      "⚠ Fehler — erneut versuchen",
+  };
+
+  const PDFButton = ()=>(
+    <button onClick={handlePDF} disabled={pdfStatus!=="idle"} style={{
+      width:"100%",padding:"14px",borderRadius:9,border:"none",cursor:pdfStatus==="idle"?"pointer":"default",
+      background: pdfStatus==="idle"?`linear-gradient(135deg,${C.gold},${C.goldL})`:
+                  pdfStatus==="done"?C.green+"33":pdfStatus==="error"?C.coral+"33":C.faint,
+      color: pdfStatus==="idle"?"#000":pdfStatus==="done"?C.green:pdfStatus==="error"?C.coral:C.muted,
+      fontWeight:700,fontSize:14,transition:"all 0.3s",
+    }}>
+      {PDF_BTN_LABELS[pdfStatus]}
+    </button>
+  );
+
+  return (
+    <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",background:C.bg,minHeight:"100vh",color:C.cream,paddingBottom:60}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"0 14px"}} ref={topRef}>
+
+        {/* STEP 0: START */}
+        {step === 0 && (
+          <div style={{paddingTop:40}}>
+            <h1 style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:700,margin:"0 0 8px",textAlign:"center"}}>Team-Reflexion</h1>
+            <p style={{color:C.muted,fontSize:13,margin:"0 0 30px",textAlign:"center",lineHeight:1.6}}>Kommunikationsprofil · Vier spezialisierte Instrumente zur Analyse von Teamdynamiken und Kommunikationsmustern</p>
+
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px",marginBottom:24}}>
+              <div style={{color:C.goldL,fontWeight:700,fontSize:14,marginBottom:14}}>Ihr Name (optional)</div>
+              <input
+                value={name}
+                onChange={e=>setName(e.target.value)}
+                placeholder="z.B. Anna Müller"
+                style={{width:"100%",padding:"12px 14px",borderRadius:8,background:C.faint,border:`1px solid ${C.border}`,color:C.cream,fontSize:13,outline:"none",marginBottom:20}}
+              />
+
+              <div style={{color:C.goldL,fontWeight:700,fontSize:14,marginBottom:14}}>Instrumente</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+                <div style={{background:C.faint,borderRadius:8,padding:"12px",borderLeft:`4px solid ${C.blue}`}}>
+                  <div style={{color:C.blue,fontWeight:700,fontSize:11}}>Instrument 1</div>
+                  <div style={{color:C.cream,fontSize:12,marginTop:4}}>Team Assessment</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>15 Fragen · 3-Punkte-Skala</div>
+                </div>
+                <div style={{background:C.faint,borderRadius:8,padding:"12px",borderLeft:`4px solid ${C.green}`}}>
+                  <div style={{color:C.green,fontWeight:700,fontSize:11}}>Instrument 2</div>
+                  <div style={{color:C.cream,fontSize:12,marginTop:4}}>Kommunikationsstile</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>24 Fragen · 5-Punkte-Skala</div>
+                </div>
+                <div style={{background:C.faint,borderRadius:8,padding:"12px",borderLeft:`4px solid ${C.sky}`}}>
+                  <div style={{color:C.sky,fontWeight:700,fontSize:11}}>Instrument 3</div>
+                  <div style={{color:C.cream,fontSize:12,marginTop:4}}>Psych. Sicherheit</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>7 Fragen · 7-Punkte-Skala</div>
+                </div>
+                <div style={{background:C.faint,borderRadius:8,padding:"12px",borderLeft:`4px solid ${C.lime}`}}>
+                  <div style={{color:C.lime,fontWeight:700,fontSize:11}}>Instrument 4</div>
+                  <div style={{color:C.cream,fontSize:12,marginTop:4}}>Feedbackorientierung</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>20 Fragen · 5-Punkte-Skala</div>
+                </div>
+              </div>
+
+              <div style={{background:C.goldBg,border:`1px solid ${C.gold}44`,borderRadius:8,padding:"12px",marginBottom:20}}>
+                <div style={{color:C.goldL,fontWeight:700,fontSize:11}}>⏱ Zeitaufwand</div>
+                <p style={{color:C.cream,fontSize:12,margin:"6px 0 0",lineHeight:1.5}}>ca. 10–15 Min. für alle 4 Instrumente (insgesamt 66 Items)</p>
+              </div>
+
+              <button
+                onClick={()=>go(1)}
+                style={{width:"100%",padding:"14px",borderRadius:9,background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:"#000",fontWeight:700,fontSize:14,border:"none",cursor:"pointer",marginBottom:12}}
+              >
+                Jetzt starten →
+              </button>
+
+              <button
+                onClick={()=>setMode("facilitator")}
+                style={{width:"100%",padding:"12px",borderRadius:9,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontWeight:600,fontSize:12,cursor:"pointer"}}
+              >
+                Oder: Facilitator-Ansicht öffnen
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 1: TEAM ASSESSMENT */}
+        {step === 1 && (
+          <div style={{paddingTop:30}}>
+            <ProgressBar step={1}/>
+            <SectionHeader badge="Instrument 1 · Team Assessment" title="Team Assessment" sub="15 Fragen zur Teameffektivität · 3-Punkte-Skala" color={C.blue}/>
+            <ScaleLegend low="Selten" high="Trifft meist zu" min={1} max={3}/>
+            {TA_ITEMS.map((item,idx)=>(
+              <LikertItem key={item.id} idx={idx+1} item={item} value={answers[item.id]} onChange={setAns} minVal={1} maxVal={3} reversed={false}/>
+            ))}
+            <NextBtn ready={allDone(TA_ITEMS)} count={TA_ITEMS.filter(i=>!answers[i.id]).length} onClick={()=>go(2)} label="Weiter zu Kommunikationsstile →" color={C.blue}/>
+          </div>
+        )}
+
+        {/* STEP 2: KOMMUNIKATIONSSTILE */}
+        {step === 2 && (
+          <div style={{paddingTop:30}}>
+            <ProgressBar step={2}/>
+            <SectionHeader badge="Instrument 2 · Kommunikationsstile (CSI-inspiriert)" title="Kommunikationsstile" sub="24 Fragen · 5-Punkte-Skala" color={C.green} original={false}/>
+            <p style={{color:C.muted,fontSize:10,marginBottom:14}}>Inspiriert von de Vries et al. (2013)</p>
+            <ScaleLegend low="Trifft gar nicht zu" high="Trifft voll zu" min={1} max={5}/>
+
+            {Object.entries(CSI_DIMS).map(([d,{label}]) => {
+              const dimItems = CSI_ITEMS.filter(i=>i.d===d);
+              return (
+                <div key={d} style={{marginBottom:24}}>
+                  <div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+                    <div style={{color:CSI_DIMS[d].color,fontWeight:700,fontSize:11}}>{label}</div>
+                  </div>
+                  {dimItems.map((item,idx)=>(
+                    <LikertItem key={item.id} idx={CSI_ITEMS.indexOf(item)+1} item={item} value={answers[item.id]} onChange={setAns} minVal={1} maxVal={5} reversed={false}/>
+                  ))}
+                </div>
+              );
+            })}
+            <NextBtn ready={allDone(CSI_ITEMS)} count={CSI_ITEMS.filter(i=>!answers[i.id]).length} onClick={()=>go(3)} label="Weiter zu Psych. Sicherheit →" color={C.green}/>
+          </div>
+        )}
+
+        {/* STEP 3: PSYCHOLOGISCHE SICHERHEIT */}
+        {step === 3 && (
+          <div style={{paddingTop:30}}>
+            <ProgressBar step={3}/>
+            <SectionHeader badge="Instrument 3 · Psychologische Sicherheit" title="Psychologische Sicherheit" sub="7 Fragen · 7-Punkte-Skala" color={C.sky} original={true}/>
+            <p style={{color:C.muted,fontSize:10,marginBottom:14}}>Original · Frei verfügbar (Edmondson, 1999)</p>
+            <ScaleLegend low="Stimme gar nicht zu" high="Stimme voll zu" min={1} max={7}/>
+            {PS_ITEMS.map((item,idx)=>(
+              <LikertItem key={item.id} idx={idx+1} item={item} value={answers[item.id]} onChange={setAns} minVal={1} maxVal={7} reversed={item.r}/>
+            ))}
+            <NextBtn ready={allDone(PS_ITEMS)} count={PS_ITEMS.filter(i=>!answers[i.id]).length} onClick={()=>go(4)} label="Weiter zu Feedbackorientierung →" color={C.sky}/>
+          </div>
+        )}
+
+        {/* STEP 4: FEEDBACKORIENTIERUNG */}
+        {step === 4 && (
+          <div style={{paddingTop:30}}>
+            <ProgressBar step={4}/>
+            <SectionHeader badge="Instrument 4 · Feedbackorientierung" title="Feedbackorientierung" sub="20 Fragen · 5-Punkte-Skala" color={C.lime} original={false}/>
+            <p style={{color:C.muted,fontSize:10,marginBottom:14}}>Konzeptuell inspiriert von Linderbaum & Levy (2010)</p>
+            <ScaleLegend low="Stimme gar nicht zu" high="Stimme voll zu" min={1} max={5}/>
+
+            {Object.entries(FOS_DIMS).map(([s,{label}]) => {
+              const subItems = FOS_ITEMS.filter(i=>i.s===s);
+              return (
+                <div key={s} style={{marginBottom:24}}>
+                  <div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+                    <div style={{color:FOS_DIMS[s].color,fontWeight:700,fontSize:11}}>{label}</div>
+                  </div>
+                  {subItems.map((item,idx)=>(
+                    <LikertItem key={item.id} idx={FOS_ITEMS.indexOf(item)+1} item={item} value={answers[item.id]} onChange={setAns} minVal={1} maxVal={5} reversed={false}/>
+                  ))}
+                </div>
+              );
+            })}
+            <NextBtn ready={allDone(FOS_ITEMS)} count={FOS_ITEMS.filter(i=>!answers[i.id]).length} onClick={()=>go(5)} label="Zu Ergebnissen →" color={C.lime}/>
+          </div>
+        )}
+
+        {/* STEP 5: RESULTS */}
+        {step === 5 && scores && (
+          <div style={{paddingTop:30}}>
+            <ProgressBar step={5}/>
+            <h1 style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,margin:"0 0 8px",textAlign:"center",color:C.goldL}}>Ihre Ergebnisse</h1>
+            <p style={{color:C.muted,fontSize:12,margin:"0 0 24px",textAlign:"center"}}>Detaillierte Analyse Ihrer Antworten zu allen 4 Instrumenten</p>
+
+            <ResultsPreview scores={scores}/>
+
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginTop:24,marginBottom:24}}>
+              <PDFButton/>
+              <button
+                onClick={()=>scoresToCSV(name||"Profil",scores)}
+                style={{width:"100%",padding:"14px",borderRadius:9,marginTop:10,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontWeight:700,fontSize:13,cursor:"pointer"}}
+              >
+                ⬇ CSV exportieren
+              </button>
+            </div>
+
+            <button
+              onClick={()=>go(0)}
+              style={{width:"100%",padding:"12px",borderRadius:9,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontWeight:600,fontSize:12,cursor:"pointer"}}
+            >
+              ← Neues Profil erstellen
+            </button>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById("root"));
+</script>
+</body>
+</html>
