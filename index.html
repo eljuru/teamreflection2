@@ -501,16 +501,60 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
     return result;
   })() : null;
 
+  // Map abbreviation keys to full dimension labels
+  const DIM_LABEL_MAP = {
+    // Team Assessment
+    ta_TR:"Vertrauen", ta_FC:"Konfliktbereitschaft", ta_CO:"Verbindlichkeit",
+    ta_AC:"Verantwortlichkeit", ta_RE:"Ergebnisorientierung",
+    TA_TR:"Vertrauen", TA_FC:"Konfliktbereitschaft", TA_CO:"Verbindlichkeit",
+    TA_AC:"Verantwortlichkeit", TA_RE:"Ergebnisorientierung",
+    TA_Vertrauen:"Vertrauen", TA_Konfliktbereitschaft:"Konfliktbereitschaft",
+    TA_Verbindlichkeit:"Verbindlichkeit", TA_Verantwortlichkeit:"Verantwortlichkeit",
+    TA_Ergebnisorientierung:"Ergebnisorientierung",
+    // CSI
+    csi_EX:"Expressivität", csi_PR:"Präzision", csi_VA:"Verbale Durchsetzung",
+    csi_QU:"Frageverhalten", csi_EM:"Emotionalität", csi_IM:"Impression Management",
+    CSI_EX:"Expressivität", CSI_PR:"Präzision", CSI_VA:"Verbale Durchsetzung",
+    CSI_QU:"Frageverhalten", CSI_EM:"Emotionalität", CSI_IM:"Impression Management",
+    CSI_Expressivität:"Expressivität", CSI_Präzision:"Präzision",
+    "CSI_Verbale Durchsetzung":"Verbale Durchsetzung", CSI_Frageverhalten:"Frageverhalten",
+    CSI_Emotionalität:"Emotionalität", "CSI_Impression Management":"Impression Management",
+    // PS
+    ps_total:"Gesamt", PS_total:"Gesamt", PS_Gesamt:"Gesamt",
+    // FOS
+    fos_UT:"Nützlichkeit", fos_AC:"Verantwortlichkeit", fos_SA:"Soziale Aufmerksamkeit", fos_SE:"Selbstwirksamkeit",
+    FOS_UT:"Nützlichkeit", FOS_AC:"Verantwortlichkeit", FOS_SA:"Soziale Aufmerksamkeit", FOS_SE:"Selbstwirksamkeit",
+    FOS_Nützlichkeit:"Nützlichkeit", FOS_Verantwortlichkeit:"Verantwortlichkeit",
+    "FOS_Soziale Aufmerksamkeit":"Soziale Aufmerksamkeit", FOS_Selbstwirksamkeit:"Selbstwirksamkeit",
+  };
+
+  // Cut-off thresholds: values below this % are flagged as "auffällig"
+  const CUTOFFS = {
+    // Team Assessment: based on Lencioni thresholds — score 3-5 out of 9 = needs attention → ≈33%
+    ta: { threshold: 33, label: "Handlungsbedarf", description: "Werte unter dieser Linie deuten auf Handlungsbedarf hin (Score 3–5 von 9)." },
+    // Psychologische Sicherheit: Edmondson — Mittelwert < 4 auf 7er-Skala → ≈50%
+    ps: { threshold: 50, label: "Kritischer Bereich", description: "Werte unter dieser Linie deuten auf eingeschränkte psychologische Sicherheit hin (M < 4.0)." },
+  };
+
   const groupKeys = (agg) => {
     if (!agg) return [];
     const groups = {};
     for (const k of Object.keys(agg)) {
-      const prefix = k.split("_")[0];
-      const label = {TA:"Team Assessment",CSI:"Kommunikationsstile",PS:"Psychologische Sicherheit",FOS:"Feedbackorientierung"}[prefix] || prefix;
-      const color = {TA:C.blue,CSI:C.green,PS:C.sky,FOS:C.lime}[prefix] || C.cream;
-      if (!groups[prefix]) groups[prefix] = {label, color, dims: []};
-      const dimName = k.replace(prefix+"_","").replace(/_/g," ");
-      groups[prefix].dims.push({key: k, dim: dimName, ...agg[k]});
+      const prefix = k.split("_")[0].toLowerCase();
+      const groupLabel = {ta:"Team Assessment",csi:"Kommunikationsstile",ps:"Psychologische Sicherheit",fos:"Feedbackorientierung"}[prefix] || prefix;
+      const groupColor = {ta:C.blue,csi:C.green,ps:C.sky,fos:C.lime}[prefix] || C.cream;
+      const dimColor = (() => {
+        const dimMap = {ta:TA_DIMS, csi:CSI_DIMS, fos:FOS_DIMS}[prefix];
+        if (dimMap) {
+          const suffix = k.split("_").slice(1).join("_");
+          const entry = dimMap[suffix] || dimMap[suffix.toUpperCase()];
+          if (entry) return entry.color;
+        }
+        return groupColor;
+      })();
+      if (!groups[prefix]) groups[prefix] = {label: groupLabel, color: groupColor, prefix, dims: []};
+      const dimLabel = DIM_LABEL_MAP[k] || k.replace(/^[^_]+_/, "").replace(/_/g, " ");
+      groups[prefix].dims.push({key: k, dim: dimLabel, dimColor, ...agg[k]});
     }
     return Object.values(groups);
   };
@@ -532,12 +576,12 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
 
   const groups = groupKeys(agg);
 
-  const taRadar = agg ? Object.keys(agg).filter(k=>k.startsWith("TA_")).map(k=>({
-    subject: k.replace("TA_",""), Mittelwert: agg[k].mean, Min: agg[k].min, Max: agg[k].max
+  const taRadar = agg ? Object.keys(agg).filter(k=>k.toLowerCase().startsWith("ta_")).map(k=>({
+    subject: DIM_LABEL_MAP[k] || k.replace(/^[^_]+_/,""), Mittelwert: agg[k].mean, Min: agg[k].min, Max: agg[k].max
   })) : [];
 
-  const csiRadar = agg ? Object.keys(agg).filter(k=>k.startsWith("CSI_")).map(k=>({
-    subject: k.replace("CSI_",""), Mittelwert: agg[k].mean
+  const csiRadar = agg ? Object.keys(agg).filter(k=>k.toLowerCase().startsWith("csi_")).map(k=>({
+    subject: DIM_LABEL_MAP[k] || k.replace(/^[^_]+_/,""), Mittelwert: agg[k].mean
   })) : [];
 
   return (
@@ -625,7 +669,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
               <div style={{width:4,height:16,background:C.blue,borderRadius:2}}/>
-              <h3 style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:C.cream,margin:0}}>Team-Radar: Team Assessment (Mittelwerte)</h3>
+              <h3 style={{fontFamily:"Georgia,serif",fontSize:14,fontWeight:700,color:C.cream,margin:0}}>Team Assessment — Radar (Mittelwerte)</h3>
             </div>
             <div style={{height:220}}>
               <ResponsiveContainer width="100%" height="100%">
@@ -644,7 +688,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
               <div style={{width:4,height:16,background:C.green,borderRadius:2}}/>
-              <h3 style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:C.cream,margin:0}}>Team-Radar: Kommunikationsstile (Mittelwerte)</h3>
+              <h3 style={{fontFamily:"Georgia,serif",fontSize:14,fontWeight:700,color:C.cream,margin:0}}>Kommunikationsstile — Radar (Mittelwerte)</h3>
             </div>
             <div style={{height:220}}>
               <ResponsiveContainer width="100%" height="100%">
@@ -659,42 +703,105 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
           </div>
         )}
 
-        {groups.map(g=>(
-          <div key={g.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-              <div style={{width:4,height:16,background:g.color,borderRadius:2}}/>
-              <h3 style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:C.cream,margin:0}}>{g.label}</h3>
+        {groups.map(g => {
+          const cutoff = CUTOFFS[g.prefix];
+          return (
+          <div key={g.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px 16px",marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <div style={{width:4,height:18,background:g.color,borderRadius:2}}/>
+              <h3 style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:C.cream,margin:0}}>{g.label}</h3>
+              <span style={{color:C.muted,fontSize:10,marginLeft:4}}>{g.dims.length} Dimension{g.dims.length!==1?"en":""}</span>
             </div>
-            {g.dims.map(d=>(
-              <div key={d.key} style={{marginBottom:14}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                  <span style={{color:C.cream,fontSize:12,fontWeight:500}}>{d.dim}</span>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {cutoff && (
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,marginLeft:12}}>
+                <div style={{width:14,height:0,borderTop:`2px dashed ${C.coral}`}}/>
+                <span style={{color:C.muted,fontSize:9}}>{cutoff.description}</span>
+              </div>
+            )}
+            {g.dims.map(d => {
+              const dimC = d.dimColor || g.color;
+              const belowCutoff = cutoff && d.mean < cutoff.threshold;
+              const highSD = d.sd > 15;
+              return (
+              <div key={d.key} style={{marginBottom:16,paddingBottom:12,borderBottom:`1px solid ${C.faint}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:dimC,flexShrink:0}}/>
+                    <span style={{color:C.cream,fontSize:13,fontWeight:600}}>{d.dim}</span>
+                    {belowCutoff && <span style={{background:C.coral+"22",color:C.coral,border:`1px solid ${C.coral}55`,borderRadius:4,padding:"1px 6px",fontSize:8,fontWeight:700}}>⚠ Auffällig</span>}
+                    {highSD && <span style={{background:C.amber+"22",color:C.amber,border:`1px solid ${C.amber}55`,borderRadius:4,padding:"1px 6px",fontSize:8,fontWeight:700}}>↔ Heterogen</span>}
+                  </div>
+                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
                     <span style={{color:C.muted,fontSize:10}}>SD {d.sd}</span>
                     <span style={{color:C.muted,fontSize:10}}>Min {d.min}</span>
                     <span style={{color:C.muted,fontSize:10}}>Max {d.max}</span>
-                    <span style={{background:g.color+"33",color:g.color,border:`1px solid ${g.color}66`,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:600}}>M = {d.mean}%</span>
+                    <span style={{background:dimC+"33",color:dimC,border:`1px solid ${dimC}66`,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700}}>M = {d.mean}%</span>
                   </div>
                 </div>
-                <div style={{position:"relative",height:10,background:C.faint,borderRadius:5,overflow:"visible"}}>
-                  <div style={{position:"absolute",left:`${d.min}%`,right:`${100-d.max}%`,height:"100%",background:g.color+"33",borderRadius:5}}/>
-                  <div style={{position:"absolute",left:`${d.mean}%`,top:-2,width:4,height:14,background:g.color,borderRadius:2,transform:"translateX(-2px)"}}/>
+                <div style={{position:"relative",height:12,background:C.faint,borderRadius:6,overflow:"visible"}}>
+                  {/* Range bar */}
+                  <div style={{position:"absolute",left:`${d.min}%`,right:`${100-d.max}%`,height:"100%",background:dimC+"22",borderRadius:6}}/>
+                  {/* Cut-off line */}
+                  {cutoff && (
+                    <div style={{position:"absolute",left:`${cutoff.threshold}%`,top:-4,width:0,height:20,borderLeft:`2px dashed ${C.coral}88`,transform:"translateX(-1px)",zIndex:2}}/>
+                  )}
+                  {/* Mean marker */}
+                  <div style={{position:"absolute",left:`${d.mean}%`,top:-3,width:4,height:18,background:dimC,borderRadius:2,transform:"translateX(-2px)",zIndex:3}}/>
+                  {/* Individual dots */}
                   {d.vals.map((v,i)=>(
-                    <div key={i} style={{position:"absolute",left:`${v}%`,top:2,width:6,height:6,borderRadius:"50%",background:C.cream+"88",border:`1px solid ${g.color}`,transform:"translateX(-3px)"}}/>
+                    <div key={i} style={{position:"absolute",left:`${v}%`,top:2,width:8,height:8,borderRadius:"50%",background:C.cream+"99",border:`1.5px solid ${dimC}`,transform:"translateX(-4px)",zIndex:1}}/>
                   ))}
                 </div>
+                {/* Scale labels */}
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+                  <span style={{color:C.muted,fontSize:8}}>0%</span>
+                  <span style={{color:C.muted,fontSize:8}}>50%</span>
+                  <span style={{color:C.muted,fontSize:8}}>100%</span>
+                </div>
               </div>
-            ))}
+            );})}
           </div>
-        ))}
+        );})}
 
-        <div style={{background:C.goldBg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"14px",marginBottom:20}}>
-          <div style={{color:C.goldL,fontWeight:700,fontSize:11,marginBottom:6}}>💡 Interpretationshinweise</div>
-          <p style={{color:C.cream,fontSize:11,margin:0,lineHeight:1.7}}>
-            Hohe SD-Werte (> 15) deuten auf heterogene Teamprofile hin — hier lohnt sich die Diskussion im Workshop besonders.
-            Achte auf Dimensionen, bei denen der Bereich (Min–Max) sehr breit ist: Das sind potenzielle Quellen für Kommunikationskonflikte.
-            Nutze den Team-CSV-Export für vertiefende Analysen in R oder SPSS.
-          </p>
+        {/* Legend */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+          <div style={{color:C.cream,fontWeight:700,fontSize:11,marginBottom:8}}>Legende</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:16,fontSize:10,color:C.muted}}>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:C.cream+"99",border:`1.5px solid ${C.blue}`}}/>
+              <span>Einzelperson</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:4,height:12,background:C.blue,borderRadius:2}}/>
+              <span>Mittelwert (M)</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:20,height:8,background:C.blue+"22",borderRadius:3}}/>
+              <span>Spannweite (Min–Max)</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:14,height:0,borderTop:`2px dashed ${C.coral}88`}}/>
+              <span>Cut-off (auffällig)</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{background:C.goldBg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"16px",marginBottom:20}}>
+          <div style={{color:C.goldL,fontWeight:700,fontSize:12,marginBottom:8}}>💡 Interpretationshinweise</div>
+          <div style={{color:C.cream,fontSize:11,lineHeight:1.8}}>
+            <p style={{margin:"0 0 6px"}}>
+              <strong style={{color:C.goldL}}>Team Assessment:</strong> Werte unter 33% (gestrichelte rote Linie) zeigen Dimensionen, die besondere Aufmerksamkeit erfordern. Die fünf Dimensionen bauen aufeinander auf: Vertrauen → Konfliktbereitschaft → Verbindlichkeit → Verantwortlichkeit → Ergebnisorientierung.
+            </p>
+            <p style={{margin:"0 0 6px"}}>
+              <strong style={{color:C.goldL}}>Psychologische Sicherheit:</strong> Werte unter 50% (M {"<"} 4.0 auf 7er-Skala) weisen auf eine eingeschränkte psychologische Sicherheit hin, die offene Kommunikation erschwert.
+            </p>
+            <p style={{margin:"0 0 6px"}}>
+              <strong style={{color:C.goldL}}>Kommunikationsstile & Feedbackorientierung:</strong> Hier gibt es kein "richtig" oder "falsch" — hohe Streuung (SD {">"} 15, markiert mit ↔ Heterogen) deutet auf unterschiedliche Präferenzen im Team hin, die Gesprächsstoff für den Workshop bieten.
+            </p>
+            <p style={{margin:0}}>
+              Nutzen Sie den <strong>Team-CSV-Export</strong> für vertiefende Analysen in R oder SPSS.
+            </p>
+          </div>
         </div>
       </>)}
     </div>
