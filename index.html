@@ -162,6 +162,26 @@ const FOS_DIMS = {
   SE:{label:"Selbstwirksamkeit",color:C.amber},
 };
 
+// ══ INSTRUMENT 5: AG-LEITUNG FEEDBACK (4 Likert + 4 open-ended) ══
+const AGL_ITEMS = [
+  {id:"agl01",q:"Ich fühle mich in meiner fachlichen Entwicklung unterstützt."},
+  {id:"agl02",q:"Die Kommunikation in unserer AG ist transparent und offen."},
+  {id:"agl03",q:"Ich habe ausreichend Gestaltungsspielraum in meiner Arbeit."},
+  {id:"agl04",q:"Ich erhalte hilfreiches Feedback zu meiner Arbeit."},
+];
+const AGL_OPEN = [
+  {id:"agl_open1",q:"Was schätze ich an der Leitung unserer Arbeitsgruppe besonders?"},
+  {id:"agl_open2",q:"Was sollte die AG-Leitung beibehalten? (Continue)"},
+  {id:"agl_open3",q:"Was sollte die AG-Leitung verändern oder lassen? (Stop)"},
+  {id:"agl_open4",q:"Was würde ich mir von der AG-Leitung zusätzlich wünschen? (Start)"},
+];
+
+function getAGLInterpretation(pct) {
+  if (pct < 34) return "Die Zufriedenheit mit der AG-Leitung ist in diesem Bereich gering. Es besteht deutlicher Handlungsbedarf. Die qualitativen Rückmeldungen können helfen, konkrete Ansatzpunkte zu identifizieren.";
+  if (pct < 67) return "Die AG-Leitung wird in diesem Bereich als teilweise zufriedenstellend wahrgenommen. Gezielte Verbesserungen könnten die Zusammenarbeit weiter stärken.";
+  return "Die AG-Leitung wird in diesem Bereich als sehr positiv wahrgenommen. Diese Stärke sollte beibehalten und weiter ausgebaut werden.";
+}
+
 // ══ HELPER FUNCTIONS ══
 function pct(mean, scaleMin, scaleMax) {
   if (scaleMax === scaleMin) return 0;
@@ -200,7 +220,22 @@ function computeScores(ans) {
     fos[label] = vals.length ? pct(meanOf(vals), 1, 5) : 0;
   }
 
-  return {ta, csi, ps, fos};
+  // AG-Leitung Feedback (percentage per item + mean)
+  const agl = {};
+  for (const item of AGL_ITEMS) {
+    const v = ans[item.id];
+    agl[item.q] = v !== undefined ? pct(v, 1, 7) : 0;
+  }
+  const aglVals = AGL_ITEMS.map(i=>ans[i.id]).filter(v=>v!==undefined);
+  const aglMean = aglVals.length ? pct(meanOf(aglVals), 1, 7) : 0;
+
+  // Open-ended answers
+  const aglOpen = {};
+  for (const item of AGL_OPEN) {
+    aglOpen[item.q] = ans[item.id] || "";
+  }
+
+  return {ta, csi, ps, fos, agl, aglMean, aglOpen};
 }
 
 const scoreLabel = v => v<34?"niedrig":v<67?"mittel":"hoch";
@@ -377,6 +412,30 @@ function buildPDF(name, date, scores) {
     y += 2;
   }
 
+  // AG-Leitung Feedback
+  if (scores.agl) {
+    addLine();
+    addTitle("Instrument 5: AG-Leitung Feedback", 14, "#c4607a");
+    addText("Hybrid: 4 Likert-Items + qualitative Rückmeldungen", 9, "#6a7a8e");
+    y += 4;
+    for (const [q, val] of Object.entries(scores.agl)) {
+      addText(`${q}: ${val}%`, 10, val < 34 ? "#d46a5a" : val < 67 ? "#d4a03a" : "#4a9e72");
+      y += 1;
+    }
+    addText(`Gesamtwert: ${scores.aglMean}%`, 10, "#e8ddc8");
+    y += 4;
+    if (scores.aglOpen) {
+      addTitle("Qualitative Rückmeldungen", 11, "#c4607a");
+      for (const [q, text] of Object.entries(scores.aglOpen)) {
+        if (text) {
+          addText(q, 9, "#e8ddc8");
+          addText(text, 8, "#6a7a8e");
+          y += 2;
+        }
+      }
+    }
+  }
+
   doc.save(`TeamReflexion_${(name||"Profil").replace(/\s+/g,"_")}.pdf`);
 }
 
@@ -387,6 +446,15 @@ function scoresToCSV(name, scores) {
   for (const [dim,val] of Object.entries(scores.csi)) rows.push(["CSI",dim,val]);
   rows.push(["Psychologische Sicherheit","Gesamt",scores.ps]);
   for (const [dim,val] of Object.entries(scores.fos)) rows.push(["Feedbackorientierung",dim,val]);
+  if (scores.agl) {
+    for (const [q,val] of Object.entries(scores.agl)) rows.push(["AG-Leitung (Likert)",q,val]);
+    rows.push(["AG-Leitung (Likert)","Gesamt",scores.aglMean]);
+  }
+  if (scores.aglOpen) {
+    for (const [q,text] of Object.entries(scores.aglOpen)) {
+      if (text) rows.push(["AG-Leitung (Qualitativ)",q,text]);
+    }
+  }
   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
   const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8"});
   const url = URL.createObjectURL(blob);
@@ -404,6 +472,15 @@ function flattenScores(scores) {
   for (const [dim,val] of Object.entries(scores.csi)) flat["CSI_"+dim] = val;
   flat["PS_Gesamt"] = scores.ps;
   for (const [dim,val] of Object.entries(scores.fos)) flat["FOS_"+dim] = val;
+  // AG-Leitung: Likert scores
+  if (scores.agl) {
+    AGL_ITEMS.forEach((item,i) => { flat["AGL_Item"+(i+1)] = scores.agl[item.q] || 0; });
+    flat["AGL_Gesamt"] = scores.aglMean || 0;
+  }
+  // AG-Leitung: open-ended (stored as strings)
+  if (scores.aglOpen) {
+    AGL_OPEN.forEach((item,i) => { flat["AGL_Open"+(i+1)] = scores.aglOpen[item.q] || ""; });
+  }
   return flat;
 }
 
@@ -874,7 +951,7 @@ function SectionHeader({badge,title,sub,color,original}) {
 }
 
 function ProgressBar({step}) {
-  const steps = ["Team", "Komm.", "Psych.S.", "FOS"];
+  const steps = ["Team", "Komm.", "Psych.S.", "FOS", "AG-Ltg."];
   return (
     <div style={{display:"flex",gap:3,marginBottom:22,alignItems:"center"}}>
       {steps.map((s,i)=>(
@@ -942,6 +1019,30 @@ function ResultsPreview({scores}) {
           </div>
         ))
       )}
+      {scores.agl && block(C.rose,"AG-Leitung Feedback · Hybrid",
+        <div>
+          {Object.entries(scores.agl).map(([q,val]) => (
+            <div key={q}>
+              <ResultBar label={q} value={val} color={C.rose}/>
+              <p style={{color:C.muted,fontSize:10,margin:"4px 0 8px 0",lineHeight:1.5}}>{getAGLInterpretation(val)}</p>
+            </div>
+          ))}
+          <div style={{marginTop:8}}>
+            <ResultBar label="Gesamtwert AG-Leitung" value={scores.aglMean} color={C.rose}/>
+          </div>
+          {scores.aglOpen && Object.entries(scores.aglOpen).some(([,t])=>t) && (
+            <div style={{marginTop:14}}>
+              <div style={{color:C.rose,fontWeight:700,fontSize:11,marginBottom:8}}>Qualitative Rückmeldungen</div>
+              {Object.entries(scores.aglOpen).map(([q,text]) => text ? (
+                <div key={q} style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",marginBottom:6}}>
+                  <div style={{color:C.cream,fontSize:10,fontWeight:600,marginBottom:4}}>{q}</div>
+                  <div style={{color:C.muted,fontSize:11,lineHeight:1.6,fontStyle:"italic"}}>"{text}"</div>
+                </div>
+              ) : null)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -958,11 +1059,11 @@ function App() {
   const [saveStatus, setSaveStatus] = useState("idle");
   const topRef = useRef(null);
 
-  const scores = step === 5 ? computeScores(answers) : null;
+  const scores = step === 6 ? computeScores(answers) : null;
   const today = new Date().toLocaleDateString("de-DE",{day:"2-digit",month:"long",year:"numeric"});
 
   useEffect(() => {
-    if (step === 5 && scores && urlTeamCode && saveStatus === "idle") {
+    if (step === 6 && scores && urlTeamCode && saveStatus === "idle") {
       setSaveStatus("saving");
       saveScoresToDB(urlTeamCode, name, scores).then(ok => {
         setSaveStatus(ok ? "saved" : "error");
@@ -1008,7 +1109,7 @@ function App() {
         {step === 0 && (
           <div style={{paddingTop:40}}>
             <h1 style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:700,margin:"0 0 8px",textAlign:"center"}}>Team-Reflexion</h1>
-            <p style={{color:C.muted,fontSize:13,margin:"0 0 30px",textAlign:"center",lineHeight:1.6}}>Kommunikationsprofil · Vier spezialisierte Instrumente zur Analyse von Teamdynamiken und Kommunikationsmustern</p>
+            <p style={{color:C.muted,fontSize:13,margin:"0 0 30px",textAlign:"center",lineHeight:1.6}}>Kommunikationsprofil · Fünf Instrumente zur Analyse von Teamdynamiken, Kommunikation und Führung</p>
 
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px",marginBottom:24}}>
               <div style={{color:C.goldL,fontWeight:700,fontSize:14,marginBottom:14}}>Ihr Name (optional)</div>
@@ -1041,11 +1142,16 @@ function App() {
                   <div style={{color:C.cream,fontSize:12,marginTop:4}}>Feedbackorientierung</div>
                   <div style={{color:C.muted,fontSize:10,marginTop:2}}>20 Fragen · 5-Punkte-Skala</div>
                 </div>
+                <div style={{background:C.faint,borderRadius:8,padding:"12px",borderLeft:`4px solid ${C.rose}`,gridColumn:"1 / -1"}}>
+                  <div style={{color:C.rose,fontWeight:700,fontSize:11}}>Instrument 5</div>
+                  <div style={{color:C.cream,fontSize:12,marginTop:4}}>AG-Leitung Feedback</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>4 Likert-Items + 4 offene Fragen</div>
+                </div>
               </div>
 
               <div style={{background:C.goldBg,border:`1px solid ${C.gold}44`,borderRadius:8,padding:"12px",marginBottom:20}}>
                 <div style={{color:C.goldL,fontWeight:700,fontSize:11}}>⏱ Zeitaufwand</div>
-                <p style={{color:C.cream,fontSize:12,margin:"6px 0 0",lineHeight:1.5}}>ca. 10–15 Min. für alle 4 Instrumente (insgesamt 66 Items)</p>
+                <p style={{color:C.cream,fontSize:12,margin:"6px 0 0",lineHeight:1.5}}>ca. 12–18 Min. für alle 5 Instrumente (70 Items + 4 offene Fragen)</p>
               </div>
 
               <button
@@ -1138,16 +1244,54 @@ function App() {
                 </div>
               );
             })}
-            <NextBtn ready={allDone(FOS_ITEMS)} count={FOS_ITEMS.filter(i=>!answers[i.id]).length} onClick={()=>go(5)} label="Zu Ergebnissen →" color={C.lime}/>
+            <NextBtn ready={allDone(FOS_ITEMS)} count={FOS_ITEMS.filter(i=>!answers[i.id]).length} onClick={()=>go(5)} label="Weiter zu AG-Leitung Feedback →" color={C.lime}/>
           </div>
         )}
 
-        {/* STEP 5: RESULTS */}
-        {step === 5 && scores && (
+        {/* STEP 5: AG-LEITUNG FEEDBACK */}
+        {step === 5 && (
           <div style={{paddingTop:30}}>
             <ProgressBar step={5}/>
+            <SectionHeader badge="Instrument 5 · AG-Leitung Feedback" title="Feedback zur AG-Leitung" sub="4 Kurzfragen + 4 offene Rückmeldungen" color={C.rose} original={false}/>
+            <p style={{color:C.muted,fontSize:10,marginBottom:14}}>Hybridformat: Quantitative Einschätzung + qualitative Rückmeldungen (Stop–Start–Continue)</p>
+            <ScaleLegend low="Stimme gar nicht zu" high="Stimme voll zu" min={1} max={7}/>
+
+            <div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+              <div style={{color:C.rose,fontWeight:700,fontSize:11}}>Quantitative Einschätzung</div>
+            </div>
+            {AGL_ITEMS.map((item,idx)=>(
+              <LikertItem key={item.id} idx={idx+1} item={item} value={answers[item.id]} onChange={setAns} minVal={1} maxVal={7} reversed={false}/>
+            ))}
+
+            <div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",marginTop:24,marginBottom:12}}>
+              <div style={{color:C.rose,fontWeight:700,fontSize:11}}>Qualitative Rückmeldungen (optional)</div>
+            </div>
+            {AGL_OPEN.map((item,idx)=>(
+              <div key={item.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"12px 14px",marginBottom:7}}>
+                <div style={{display:"flex",gap:9,alignItems:"flex-start",marginBottom:8}}>
+                  <span style={{color:C.rose,fontWeight:700,fontSize:11,minWidth:22,paddingTop:2}}>{idx+1}.</span>
+                  <p style={{color:C.cream,fontSize:13,lineHeight:1.6,margin:0}}>{item.q}</p>
+                </div>
+                <textarea
+                  value={answers[item.id]||""}
+                  onChange={e=>setAns(item.id, e.target.value)}
+                  placeholder="Ihre Rückmeldung (optional)…"
+                  rows={3}
+                  style={{width:"100%",padding:"10px 12px",borderRadius:7,background:C.faint,border:`1px solid ${C.border}`,color:C.cream,fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit",lineHeight:1.6}}
+                />
+              </div>
+            ))}
+
+            <NextBtn ready={allDone(AGL_ITEMS)} count={AGL_ITEMS.filter(i=>!answers[i.id]).length} onClick={()=>go(6)} label="Zu Ergebnissen →" color={C.rose}/>
+          </div>
+        )}
+
+        {/* STEP 6: RESULTS */}
+        {step === 6 && scores && (
+          <div style={{paddingTop:30}}>
+            <ProgressBar step={6}/>
             <h1 style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,margin:"0 0 8px",textAlign:"center",color:C.goldL}}>Ihre Ergebnisse</h1>
-            <p style={{color:C.muted,fontSize:12,margin:"0 0 24px",textAlign:"center"}}>Detaillierte Analyse Ihrer Antworten zu allen 4 Instrumenten</p>
+            <p style={{color:C.muted,fontSize:12,margin:"0 0 24px",textAlign:"center"}}>Detaillierte Analyse Ihrer Antworten zu allen 5 Instrumenten</p>
 
             <ResultsPreview scores={scores}/>
 
