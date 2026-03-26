@@ -354,7 +354,15 @@ function buildPDF(name, date, scores) {
     }
   }
 
-  doc.save(`TeamReflexion_${(name||"Profil").replace(/\s+/g,"_")}.pdf`);
+  const pdfBlob = doc.output('blob');
+  const pdfUrl = URL.createObjectURL(pdfBlob);
+  const a = document.createElement("a");
+  a.href = pdfUrl;
+  a.download = `TeamReflexion_${(name||"Profil").replace(/\s+/g,"_")}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
 }
 
 // ══ CSV EXPORT ══
