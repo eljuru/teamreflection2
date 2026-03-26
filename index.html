@@ -480,6 +480,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
     setProfiles([]);
   };
 
+  const [facPage, setFacPage] = useState("quant"); // "quant" or "text"
   const [copied, setCopied] = useState(false);
   const teamLink = teamCode ? `${window.location.origin}${window.location.pathname}?team=${teamCode}` : "";
   const copyLink = () => {
@@ -663,6 +664,19 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
           </div>
         </div>
 
+        {/* Tab-Navigation */}
+        <div style={{display:"flex",gap:0,marginBottom:20,borderBottom:`2px solid ${C.border}`}}>
+          {[{key:"quant",label:"Quantitative Ergebnisse"},{key:"text",label:"Offene Rückmeldungen"}].map(tab=>(
+            <button key={tab.key} onClick={()=>setFacPage(tab.key)} style={{
+              flex:1,padding:"12px 14px",border:"none",borderBottom:facPage===tab.key?`3px solid ${C.gold}`:"3px solid transparent",
+              background:"transparent",color:facPage===tab.key?C.cream:C.muted,fontWeight:facPage===tab.key?700:500,
+              fontSize:13,cursor:"pointer",transition:"all 0.2s",marginBottom:-2
+            }}>{tab.label}</button>
+          ))}
+        </div>
+
+        {/* PAGE 1: Quantitative Ergebnisse */}
+        {facPage === "quant" && (<>
         {taRadar.length > 0 && (
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 14px",marginBottom:14}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
@@ -743,32 +757,6 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
           </div>
         );})}
 
-        {/* AG-Leitung: Offene Antworten */}
-        {profiles.length > 0 && profiles.some(p => p.scores && (p.scores.AGL_Open1 || p.scores.AGL_Open2 || p.scores.AGL_Open3 || p.scores.AGL_Open4)) && (
-          <div style={{background:C.surface,border:`1px solid ${C.rose}44`,borderRadius:10,padding:"16px",marginBottom:14}}>
-            <h3 style={{fontFamily:"Georgia,serif",fontSize:15,color:C.rose,margin:"0 0 12px"}}>AG-Leitung — Offene Rückmeldungen</h3>
-            {[
-              {key:"AGL_Open1", label:"Was schätze ich an der Leitung besonders?"},
-              {key:"AGL_Open2", label:"Was sollte die AG-Leitung beibehalten? (Continue)"},
-              {key:"AGL_Open3", label:"Was sollte die AG-Leitung verändern oder lassen? (Stop)"},
-              {key:"AGL_Open4", label:"Was würde ich mir zusätzlich wünschen? (Start)"},
-            ].map(q => {
-              const responses = profiles.map(p => p.scores?.[q.key]).filter(v => v && v !== "" && v !== "0" && v !== 0);
-              if (responses.length === 0) return null;
-              return (
-                <div key={q.key} style={{marginBottom:12}}>
-                  <div style={{color:C.goldL,fontWeight:700,fontSize:11,marginBottom:6}}>{q.label}</div>
-                  {responses.map((r,i) => (
-                    <div key={i} style={{background:C.faint,borderRadius:7,padding:"8px 12px",marginBottom:4,fontSize:12,color:C.cream,lineHeight:1.5,borderLeft:`3px solid ${C.rose}66`}}>
-                      „{r}"
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         {/* Legend */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
           <div style={{color:C.cream,fontWeight:700,fontSize:11,marginBottom:8}}>Legende</div>
@@ -809,6 +797,45 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
             </p>
           </div>
         </div>
+        </>)}
+
+        {/* PAGE 2: Offene Rückmeldungen */}
+        {facPage === "text" && (
+          <div>
+            {profiles.some(p => p.scores && (p.scores.AGL_Open1 || p.scores.AGL_Open2 || p.scores.AGL_Open3 || p.scores.AGL_Open4)) ? (
+              <div style={{background:C.surface,border:`1px solid ${C.rose}44`,borderRadius:10,padding:"16px",marginBottom:14}}>
+                <h3 style={{fontFamily:"Georgia,serif",fontSize:15,color:C.rose,margin:"0 0 12px"}}>AG-Leitung — Offene Rückmeldungen</h3>
+                <p style={{color:C.muted,fontSize:11,margin:"0 0 16px",lineHeight:1.5}}>Alle qualitativen Antworten der {profiles.length} Teilnehmenden, anonymisiert und nach Frage gruppiert.</p>
+                {[
+                  {key:"AGL_Open1", label:"Was schätze ich an der Leitung besonders?"},
+                  {key:"AGL_Open2", label:"Was sollte die AG-Leitung beibehalten? (Continue)"},
+                  {key:"AGL_Open3", label:"Was sollte die AG-Leitung verändern oder lassen? (Stop)"},
+                  {key:"AGL_Open4", label:"Was würde ich mir zusätzlich wünschen? (Start)"},
+                ].map(q => {
+                  const responses = profiles.map(p => p.scores?.[q.key]).filter(v => v && v !== "" && v !== "0" && v !== 0);
+                  if (responses.length === 0) return null;
+                  return (
+                    <div key={q.key} style={{marginBottom:18}}>
+                      <div style={{color:C.goldL,fontWeight:700,fontSize:12,marginBottom:8}}>{q.label}</div>
+                      {responses.map((r,i) => (
+                        <div key={i} style={{background:C.faint,borderRadius:7,padding:"10px 14px",marginBottom:5,fontSize:12,color:C.cream,lineHeight:1.6,borderLeft:`3px solid ${C.rose}66`}}>
+                          „{r}"
+                        </div>
+                      ))}
+                      <div style={{color:C.muted,fontSize:10,marginTop:4}}>{responses.length} von {profiles.length} Antworten</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"24px",textAlign:"center",marginBottom:14}}>
+                <div style={{fontSize:28,marginBottom:8}}>📝</div>
+                <div style={{color:C.cream,fontWeight:600,fontSize:13,marginBottom:4}}>Noch keine offenen Rückmeldungen</div>
+                <p style={{color:C.muted,fontSize:11,margin:0}}>Sobald Teilnehmende die offenen Fragen im AG-Leitung Feedback ausgefüllt haben, erscheinen die Antworten hier.</p>
+              </div>
+            )}
+          </div>
+        )}
       </>)}
     </div>
   );
