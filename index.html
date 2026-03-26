@@ -603,6 +603,10 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
     FOS_UT:"Nützlichkeit", FOS_AC:"Verantwortlichkeit", FOS_SA:"Soziale Aufmerksamkeit", FOS_SE:"Selbstwirksamkeit",
     FOS_Nützlichkeit:"Nützlichkeit", FOS_Verantwortlichkeit:"Verantwortlichkeit",
     "FOS_Soziale Aufmerksamkeit":"Soziale Aufmerksamkeit", FOS_Selbstwirksamkeit:"Selbstwirksamkeit",
+    // AGL
+    AGL_Item1:"Fachliche Entwicklung", AGL_Item2:"Transparente Kommunikation",
+    AGL_Item3:"Gestaltungsspielraum", AGL_Item4:"Hilfreiches Feedback",
+    AGL_Gesamt:"Gesamt",
   };
 
   // Cut-off thresholds: values below this % are flagged as "auffällig"
@@ -618,8 +622,9 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
     const groups = {};
     for (const k of Object.keys(agg)) {
       const prefix = k.split("_")[0].toLowerCase();
-      const groupLabel = {ta:"Team Assessment",csi:"Kommunikationsstile",ps:"Psychologische Sicherheit",fos:"Feedbackorientierung"}[prefix] || prefix;
-      const groupColor = {ta:C.blue,csi:C.green,ps:C.sky,fos:C.lime}[prefix] || C.cream;
+      if (k.toLowerCase().startsWith("agl_open")) continue; // skip open-ended text from numeric display
+      const groupLabel = {ta:"Team Assessment",csi:"Kommunikationsstile",ps:"Psychologische Sicherheit",fos:"Feedbackorientierung",agl:"AG-Leitung Feedback"}[prefix] || prefix;
+      const groupColor = {ta:C.blue,csi:C.green,ps:C.sky,fos:C.lime,agl:C.rose}[prefix] || C.cream;
       const dimColor = (() => {
         const dimMap = {ta:TA_DIMS, csi:CSI_DIMS, fos:FOS_DIMS}[prefix];
         if (dimMap) {
@@ -839,6 +844,32 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
             );})}
           </div>
         );})}
+
+        {/* AG-Leitung: Offene Antworten */}
+        {profiles.length > 0 && profiles.some(p => p.scores && (p.scores.AGL_Open1 || p.scores.AGL_Open2 || p.scores.AGL_Open3 || p.scores.AGL_Open4)) && (
+          <div style={{background:C.surface,border:`1px solid ${C.rose}44`,borderRadius:10,padding:"16px",marginBottom:14}}>
+            <h3 style={{fontFamily:"Georgia,serif",fontSize:15,color:C.rose,margin:"0 0 12px"}}>AG-Leitung — Offene Rückmeldungen</h3>
+            {[
+              {key:"AGL_Open1", label:"Was schätze ich an der Leitung besonders?"},
+              {key:"AGL_Open2", label:"Was sollte die AG-Leitung beibehalten? (Continue)"},
+              {key:"AGL_Open3", label:"Was sollte die AG-Leitung verändern oder lassen? (Stop)"},
+              {key:"AGL_Open4", label:"Was würde ich mir zusätzlich wünschen? (Start)"},
+            ].map(q => {
+              const responses = profiles.map(p => p.scores?.[q.key]).filter(v => v && v !== "" && v !== "0" && v !== 0);
+              if (responses.length === 0) return null;
+              return (
+                <div key={q.key} style={{marginBottom:12}}>
+                  <div style={{color:C.goldL,fontWeight:700,fontSize:11,marginBottom:6}}>{q.label}</div>
+                  {responses.map((r,i) => (
+                    <div key={i} style={{background:C.faint,borderRadius:7,padding:"8px 12px",marginBottom:4,fontSize:12,color:C.cream,lineHeight:1.5,borderLeft:`3px solid ${C.rose}66`}}>
+                      „{r}"
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Legend */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
