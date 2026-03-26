@@ -561,32 +561,46 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
 
   const exportTeamCSV = () => {
     if (!agg) return;
-    const header = ["Dimension", ...profiles.map((_,i)=>"TN_"+(i+1)), "M", "SD", "Min", "Max"];
-    const rows = [header];
-    for (const [k, v] of Object.entries(agg)) {
-      if (k.toLowerCase().startsWith("csi_")) continue;
-      if (k.toLowerCase().startsWith("agl_open")) continue; // open-ended handled separately below
-      const dimName = k.replace(/_/g," ");
-      rows.push([dimName, ...v.vals.map(String), v.mean, v.sd, v.min, v.max]);
-    }
-    // Qualitative section: open-ended AGL responses
+    // Collect quantitative column keys (skip CSI and AGL_Open)
+    const quantKeys = Object.keys(agg).filter(k => !k.toLowerCase().startsWith("csi_") && !k.toLowerCase().startsWith("agl_open"));
+    const quantLabels = quantKeys.map(k => DIM_LABEL_MAP[k] || k.replace(/_/g," "));
+    // Open-ended column keys
     const openQuestions = [
-      {key:"AGL_Open1", label:"Was schätze ich an der Leitung besonders?"},
-      {key:"AGL_Open2", label:"Was sollte die AG-Leitung beibehalten? (Continue)"},
-      {key:"AGL_Open3", label:"Was sollte die AG-Leitung verändern oder lassen? (Stop)"},
-      {key:"AGL_Open4", label:"Was würde ich mir zusätzlich wünschen? (Start)"},
+      {key:"AGL_Open1", label:"Was schätze ich besonders?"},
+      {key:"AGL_Open2", label:"Beibehalten (Continue)"},
+      {key:"AGL_Open3", label:"Verändern/Lassen (Stop)"},
+      {key:"AGL_Open4", label:"Zusätzlich wünschen (Start)"},
     ];
     const hasOpen = profiles.some(p => openQuestions.some(q => p.scores?.[q.key] && p.scores[q.key] !== "" && p.scores[q.key] !== "0"));
-    if (hasOpen) {
-      rows.push([]); // blank separator row
-      rows.push(["Offene Rückmeldungen"]);
-      const openHeader = ["Frage", ...profiles.map((_,i)=>"TN_"+(i+1))];
-      rows.push(openHeader);
-      for (const q of openQuestions) {
-        const answers = profiles.map(p => p.scores?.[q.key] || "");
-        rows.push([q.label, ...answers]);
+    // Build header: TN | quantitative dimensions... | (open-ended questions...)
+    const header = ["Teilnehmer:in", ...quantLabels];
+    if (hasOpen) header.push(...openQuestions.map(q => q.label));
+    const rows = [header];
+    // One row per participant
+    profiles.forEach((p, i) => {
+      const row = ["TN_" + (i+1)];
+      for (const k of quantKeys) {
+        row.push(p.scores?.[k] !== undefined ? String(p.scores[k]) : "");
       }
-    }
+      if (hasOpen) {
+        for (const q of openQuestions) {
+          row.push(p.scores?.[q.key] || "");
+        }
+      }
+      rows.push(row);
+    });
+    // Aggregation row (M, SD, Min, Max)
+    const aggRows = ["M","SD","Min","Max"].map(stat => {
+      const row = [stat];
+      for (const k of quantKeys) {
+        const v = agg[k];
+        row.push(stat === "M" ? v.mean : stat === "SD" ? v.sd : stat === "Min" ? v.min : v.max);
+      }
+      if (hasOpen) openQuestions.forEach(() => row.push(""));
+      return row;
+    });
+    rows.push([]); // blank separator
+    rows.push(...aggRows);
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
     const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
