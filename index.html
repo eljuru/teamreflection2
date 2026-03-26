@@ -197,7 +197,14 @@ function computeScores(ans) {
     aglOpen[item.q] = ans[item.id] || "";
   }
 
-  return {ta, ps, fos, agl, aglMean, aglOpen};
+  // Raw item answers for CSV export
+  const items = {};
+  TA_ITEMS.forEach(i => { items[i.id] = ans[i.id] !== undefined ? ans[i.id] : ""; });
+  PS_ITEMS.forEach(i => { items[i.id] = ans[i.id] !== undefined ? ans[i.id] : ""; });
+  FOS_ITEMS.forEach(i => { items[i.id] = ans[i.id] !== undefined ? ans[i.id] : ""; });
+  AGL_ITEMS.forEach(i => { items[i.id] = ans[i.id] !== undefined ? ans[i.id] : ""; });
+
+  return {ta, ps, fos, agl, aglMean, aglOpen, items};
 }
 
 const scoreLabel = v => v<34?"niedrig":v<67?"mittel":"hoch";
@@ -393,6 +400,13 @@ function scoresToCSV(name, scores) {
 // ══ FLAT SCORES FOR SUPABASE ══
 function flattenScores(scores) {
   const flat = {};
+  // Individual items (raw responses)
+  if (scores.items) {
+    for (const [id, val] of Object.entries(scores.items)) {
+      flat["Item_"+id] = val;
+    }
+  }
+  // Scale scores
   for (const [dim,{pct}] of Object.entries(scores.ta)) flat["TA_"+dim] = pct;
   flat["PS_Gesamt"] = scores.ps;
   for (const [dim,val] of Object.entries(scores.fos)) flat["FOS_"+dim] = val;
@@ -490,15 +504,21 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
   const removeProfile = (id) => setProfiles(p => p.filter(x => x.id !== id));
 
   const agg = profiles.length > 1 ? (() => {
-    const keys = Object.keys(profiles[0].scores);
+    // Union of ALL keys across all profiles
+    const keySet = new Set();
+    profiles.forEach(p => Object.keys(p.scores).forEach(k => keySet.add(k)));
+    const keys = [...keySet];
     const result = {};
     for (const k of keys) {
-      const vals = profiles.map(p => p.scores[k] || 0);
-      const mean = vals.reduce((a,b)=>a+b,0) / vals.length;
-      const sd = Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0) / vals.length);
-      const min = Math.min(...vals);
-      const max = Math.max(...vals);
-      result[k] = {mean: Math.round(mean), sd: Math.round(sd*10)/10, min, max, vals};
+      // Skip non-numeric values (open-ended text)
+      const vals = profiles.map(p => p.scores[k] !== undefined ? p.scores[k] : 0);
+      if (vals.some(v => typeof v === "string" && v !== "" && isNaN(Number(v)))) continue;
+      const numVals = vals.map(v => typeof v === "string" ? Number(v) || 0 : (v || 0));
+      const mean = numVals.reduce((a,b)=>a+b,0) / numVals.length;
+      const sd = Math.sqrt(numVals.reduce((a,b)=>a+(b-mean)**2,0) / numVals.length);
+      const min = Math.min(...numVals);
+      const max = Math.max(...numVals);
+      result[k] = {mean: Math.round(mean), sd: Math.round(sd*10)/10, min, max, vals: numVals};
     }
     return result;
   })() : null;
@@ -561,46 +581,65 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
 
   const exportTeamCSV = () => {
     if (!agg) return;
-    // Collect quantitative column keys (skip CSI and AGL_Open)
-    const quantKeys = Object.keys(agg).filter(k => !k.toLowerCase().startsWith("csi_") && !k.toLowerCase().startsWith("agl_open"));
-    const quantLabels = quantKeys.map(k => DIM_LABEL_MAP[k] || k.replace(/_/g," "));
-    // Open-ended column keys
-    const openQuestions = [
-      {key:"AGL_Open1", label:"Was schätze ich besonders?"},
-      {key:"AGL_Open2", label:"Beibehalten (Continue)"},
-      {key:"AGL_Open3", label:"Verändern/Lassen (Stop)"},
-      {key:"AGL_Open4", label:"Zusätzlich wünschen (Start)"},
+    // ── Define column groups in fixed order ──
+    // 1) Individual items (raw responses)
+    const itemCols = [
+      ...TA_ITEMS.map(i => ({key:"Item_"+i.id, label:"TA_"+i.id+" ("+i.q.substring(0,40)+"…)"})),
+      ...PS_ITEMS.map(i => ({key:"Item_"+i.id, label:"PS_"+i.id+(i.r?" [R]":"")})),
+      ...FOS_ITEMS.map(i => ({key:"Item_"+i.id, label:"FOS_"+i.id})),
+      ...AGL_ITEMS.map((i,idx) => ({key:"Item_agl0"+(idx+1), label:"AGL_agl0"+(idx+1)+" ("+i.q.substring(0,35)+"…)"})),
     ];
-    const hasOpen = profiles.some(p => openQuestions.some(q => p.scores?.[q.key] && p.scores[q.key] !== "" && p.scores[q.key] !== "0"));
-    // Build header: TN | quantitative dimensions... | (open-ended questions...)
-    const header = ["Teilnehmer:in", ...quantLabels];
-    if (hasOpen) header.push(...openQuestions.map(q => q.label));
+    // 2) Scale scores
+    const scaleCols = [
+      {key:"TA_Vertrauen", label:"TA_Vertrauen (%)"}, {key:"TA_Konfliktbereitschaft", label:"TA_Konfliktbereitschaft (%)"},
+      {key:"TA_Verbindlichkeit", label:"TA_Verbindlichkeit (%)"}, {key:"TA_Verantwortlichkeit", label:"TA_Verantwortlichkeit (%)"},
+      {key:"TA_Ergebnisorientierung", label:"TA_Ergebnisorientierung (%)"},
+      {key:"PS_Gesamt", label:"PS_Gesamt (%)"},
+      {key:"FOS_Nützlichkeit", label:"FOS_Nützlichkeit (%)"}, {key:"FOS_Verantwortlichkeit", label:"FOS_Verantwortlichkeit (%)"},
+      {key:"FOS_Soziale Aufmerksamkeit", label:"FOS_Soziale Aufmerksamkeit (%)"}, {key:"FOS_Selbstwirksamkeit", label:"FOS_Selbstwirksamkeit (%)"},
+      {key:"AGL_Item1", label:"AGL_Fachliche Entwicklung (%)"}, {key:"AGL_Item2", label:"AGL_Transparente Kommunikation (%)"},
+      {key:"AGL_Item3", label:"AGL_Gestaltungsspielraum (%)"}, {key:"AGL_Item4", label:"AGL_Hilfreiches Feedback (%)"},
+      {key:"AGL_Gesamt", label:"AGL_Gesamt (%)"},
+    ];
+    // 3) Open-ended
+    const openCols = [
+      {key:"AGL_Open1", label:"Open: Was schätze ich besonders?"},
+      {key:"AGL_Open2", label:"Open: Beibehalten (Continue)"},
+      {key:"AGL_Open3", label:"Open: Verändern/Lassen (Stop)"},
+      {key:"AGL_Open4", label:"Open: Zusätzlich wünschen (Start)"},
+    ];
+    // Check which items exist in any profile
+    const hasItems = profiles.some(p => itemCols.some(c => p.scores?.[c.key] !== undefined));
+    const hasOpen = profiles.some(p => openCols.some(c => p.scores?.[c.key] && p.scores[c.key] !== "" && p.scores[c.key] !== "0"));
+    // Build columns: always scale scores, conditionally items and open
+    const allCols = [...(hasItems ? itemCols : []), ...scaleCols, ...(hasOpen ? openCols : [])];
+    // Header
+    const header = ["Teilnehmer:in", ...allCols.map(c => c.label)];
     const rows = [header];
     // One row per participant
     profiles.forEach((p, i) => {
       const row = ["TN_" + (i+1)];
-      for (const k of quantKeys) {
-        row.push(p.scores?.[k] !== undefined ? String(p.scores[k]) : "");
-      }
-      if (hasOpen) {
-        for (const q of openQuestions) {
-          row.push(p.scores?.[q.key] || "");
-        }
+      for (const c of allCols) {
+        const v = p.scores?.[c.key];
+        row.push(v !== undefined && v !== null ? String(v) : "");
       }
       rows.push(row);
     });
-    // Aggregation row (M, SD, Min, Max)
-    const aggRows = ["M","SD","Min","Max"].map(stat => {
-      const row = [stat];
-      for (const k of quantKeys) {
-        const v = agg[k];
-        row.push(stat === "M" ? v.mean : stat === "SD" ? v.sd : stat === "Min" ? v.min : v.max);
-      }
-      if (hasOpen) openQuestions.forEach(() => row.push(""));
-      return row;
-    });
+    // Aggregation rows for numeric columns
+    const numericCols = [...(hasItems ? itemCols : []), ...scaleCols];
     rows.push([]); // blank separator
-    rows.push(...aggRows);
+    for (const stat of ["M","SD","Min","Max"]) {
+      const row = [stat];
+      for (const c of allCols) {
+        if (numericCols.includes(c) && agg[c.key]) {
+          const v = agg[c.key];
+          row.push(stat === "M" ? v.mean : stat === "SD" ? v.sd : stat === "Min" ? v.min : v.max);
+        } else {
+          row.push("");
+        }
+      }
+      rows.push(row);
+    }
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n");
     const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
