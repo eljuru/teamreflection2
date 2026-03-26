@@ -61,7 +61,7 @@ const C = {
 
 // ══ INSTRUMENT 1: TEAM ASSESSMENT (15 items, 3-point) ══
 const TA_ITEMS = [
-  {id:"ta01",d:"TR",q:"Teammitglieder sind leidenschaftlich und offen in ihren Diskussionen."},
+  {id:"ta01",d:"FC",q:"Teammitglieder sind leidenschaftlich und offen in ihren Diskussionen."},
   {id:"ta02",d:"AC",q:"Teammitglieder sprechen Schwächen oder unproduktives Verhalten anderer direkt an."},
   {id:"ta03",d:"CO",q:"Teammitglieder wissen, woran ihre Kolleg:innen arbeiten und wie sie zum Teamziel beitragen."},
   {id:"ta04",d:"TR",q:"Teammitglieder entschuldigen sich schnell und aufrichtig, wenn sie etwas Unangemessenes gesagt oder getan haben."},
@@ -160,10 +160,12 @@ function computeScores(ans) {
   // Team Assessment (raw sum + pct)
   const ta = {};
   for (const [d,{label}] of Object.entries(TA_DIMS)) {
-    const vals = TA_ITEMS.filter(i=>i.d===d).map(i=>ans[i.id]).filter(v=>v!==undefined);
+    const dimItems = TA_ITEMS.filter(i=>i.d===d);
+    const vals = dimItems.map(i=>ans[i.id]).filter(v=>v!==undefined);
     if (vals.length) {
       const rawSum = vals.reduce((a,b)=>a+b,0);
-      ta[label] = {rawSum, pct: pct(rawSum, 3, 9)};
+      const n = dimItems.length;
+      ta[label] = {rawSum, pct: pct(rawSum, n * 1, n * 3)};
     } else {
       ta[label] = {rawSum: 0, pct: 0};
     }
@@ -276,15 +278,16 @@ function generatePDF(scores, name, date, setStatus) {
 }
 
 function buildPDF(name, date, scores) {
-  const {jsPDF} = window;
+  const {jsPDF} = window.jspdf;
   const doc = new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
   const w = doc.internal.pageSize.getWidth();
   const h = doc.internal.pageSize.getHeight();
   let y = 15;
 
-  const addLine = ()=>{ doc.setLineWidth(0.5); doc.setDrawColor("#1e3050"); doc.line(14, y, w-14, y); y += 4; };
-  const addTitle = (text,size,color)=>{ doc.setFontSize(size); doc.setTextColor(color||"#e8ddc8"); doc.text(text, 14, y); y += size/2.5; };
-  const addText = (text,size,color)=>{ doc.setFontSize(size); doc.setTextColor(color||"#6a7a8e"); doc.text(text, 14, y, {maxWidth:w-28}); y += doc.getTextDimensions(text).h+2; };
+  const checkPage = (needed) => { if (y + (needed||20) > h - 15) { doc.addPage(); doc.setFillColor(11,19,33); doc.rect(0,0,w,h,"F"); y = 15; } };
+  const addLine = ()=>{ checkPage(6); doc.setLineWidth(0.5); doc.setDrawColor("#1e3050"); doc.line(14, y, w-14, y); y += 4; };
+  const addTitle = (text,size,color)=>{ checkPage(size); doc.setFontSize(size); doc.setTextColor(color||"#e8ddc8"); doc.text(text, 14, y); y += size/2.5; };
+  const addText = (text,size,color)=>{ checkPage(10); doc.setFontSize(size); doc.setTextColor(color||"#6a7a8e"); const lines = doc.splitTextToSize(text, w-28); doc.text(lines, 14, y); y += lines.length * size * 0.4 + 2; };
 
   doc.setFillColor(11, 19, 33);
   doc.rect(0, 0, w, h, "F");
@@ -300,7 +303,8 @@ function buildPDF(name, date, scores) {
   y += 4;
   for (const [dim, score] of Object.entries(scores.ta)) {
     const interpretation = getTAInterpretation(dim, score.pct);
-    addText(`${dim}: ${score.rawSum}/9 (${score.pct}%)`, 10, score.pct < 34 ? "#d46a5a" : score.pct < 67 ? "#d4a03a" : "#4a9e72");
+    const maxRaw = TA_ITEMS.filter(i=>Object.entries(TA_DIMS).find(([k,v])=>v.label===dim)?.[0]===i.d).length * 3;
+    addText(`${dim}: ${score.rawSum}/${maxRaw} (${score.pct}%)`, 10, score.pct < 34 ? "#d46a5a" : score.pct < 67 ? "#d4a03a" : "#4a9e72");
     addText(interpretation, 8, "#6a7a8e");
     y += 2;
   }
