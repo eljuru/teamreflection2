@@ -42,10 +42,27 @@ async function saveScoresToDB(teamCode, name, scores) {
   return !error;
 }
 
+// Normalize legacy score keys to current format
+function normalizeScoreKeys(scores) {
+  if (!scores) return scores;
+  const KEY_MAP = {
+    ta_TR:"TA_Vertrauen", ta_FC:"TA_Konfliktbereitschaft", ta_CO:"TA_Verbindlichkeit",
+    ta_AC:"TA_Verantwortlichkeit", ta_RE:"TA_Ergebnisorientierung",
+    ps_total:"PS_Gesamt",
+    fos_UT:"FOS_Nützlichkeit", fos_AC:"FOS_Verantwortlichkeit",
+    fos_SA:"FOS_Soziale Aufmerksamkeit", fos_SE:"FOS_Selbstwirksamkeit",
+  };
+  const out = {};
+  for (const [k, v] of Object.entries(scores)) {
+    out[KEY_MAP[k] || k] = v;
+  }
+  return out;
+}
+
 async function loadTeamProfiles(teamCode) {
   const {data, error} = await supabase.from("profiles").select("*").eq("team_code", teamCode).order("created_at", {ascending: true});
   if (error) { console.error("Supabase select error:", error); return []; }
-  return data.map(row => ({name: row.name, scores: row.scores, id: row.id, created_at: row.created_at}));
+  return data.map(row => ({name: row.name, scores: normalizeScoreKeys(row.scores), id: row.id, created_at: row.created_at}));
 }
 
 // ── Theme ──
