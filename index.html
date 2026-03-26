@@ -524,7 +524,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
     // Union of ALL keys across all profiles
     const keySet = new Set();
     profiles.forEach(p => Object.keys(p.scores).forEach(k => keySet.add(k)));
-    const keys = [...keySet];
+    const keys = [...keySet].filter(k => !k.startsWith("Item_"));
     const result = {};
     for (const k of keys) {
       // Skip non-numeric values (open-ended text)
@@ -642,14 +642,25 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
       }
       rows.push(row);
     });
-    // Aggregation rows for numeric columns
-    const numericCols = [...(hasItems ? itemCols : []), ...scaleCols];
+    // Aggregation rows for numeric columns (compute item stats locally since agg excludes items)
+    const numericCols = new Set([...(hasItems ? itemCols : []), ...scaleCols].map(c => c.key));
+    const csvAgg = {};
+    for (const c of allCols) {
+      if (!numericCols.has(c.key)) continue;
+      if (agg[c.key]) { csvAgg[c.key] = agg[c.key]; continue; }
+      // Compute for items not in agg
+      const vals = profiles.map(p => {const v = p.scores?.[c.key]; return v !== undefined && v !== null && v !== "" ? Number(v) : NaN;}).filter(v => !isNaN(v));
+      if (vals.length === 0) continue;
+      const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+      const sd = Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length);
+      csvAgg[c.key] = {mean:Math.round(mean*10)/10, sd:Math.round(sd*10)/10, min:Math.min(...vals), max:Math.max(...vals)};
+    }
     rows.push([]); // blank separator
     for (const stat of ["M","SD","Min","Max"]) {
       const row = [stat];
       for (const c of allCols) {
-        if (numericCols.includes(c) && agg[c.key]) {
-          const v = agg[c.key];
+        if (numericCols.has(c.key) && csvAgg[c.key]) {
+          const v = csvAgg[c.key];
           row.push(stat === "M" ? v.mean : stat === "SD" ? v.sd : stat === "Min" ? v.min : v.max);
         } else {
           row.push("");
