@@ -527,6 +527,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
     for (const k of Object.keys(agg)) {
       const prefix = k.split("_")[0].toLowerCase();
       if (k.toLowerCase().startsWith("agl_open")) continue; // skip open-ended text from numeric display
+      if (prefix === "csi") continue; // CSI instrument removed — skip legacy data
       const groupLabel = {ta:"Team Assessment",ps:"Psychologische Sicherheit",fos:"Feedbackorientierung",agl:"AG-Leitung Feedback"}[prefix] || prefix;
       const groupColor = {ta:C.blue,ps:C.sky,fos:C.lime,agl:C.rose}[prefix] || C.cream;
       const dimColor = (() => {
@@ -550,6 +551,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
     const header = ["Dimension", ...profiles.map((_,i)=>"TN_"+(i+1)), "M", "SD", "Min", "Max"];
     const rows = [header];
     for (const [k, v] of Object.entries(agg)) {
+      if (k.toLowerCase().startsWith("csi_")) continue; // skip legacy CSI data
       const dimName = k.replace(/_/g," ");
       rows.push([dimName, ...v.vals.map(String), v.mean, v.sd, v.min, v.max]);
     }
