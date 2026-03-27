@@ -30,8 +30,30 @@ const SUPABASE_URL = "https://lzfalarwcvhadquaptlv.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qrQMwydWwEm-gJaDN14EvQ_pVb7Magq";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ── Team-Code obfuscation (XOR + Base64-URL) ──
+const _TC_KEY = "TRef2025";
+function encodeTeam(code) {
+  if (!code) return "";
+  let out = "";
+  for (let i = 0; i < code.length; i++) out += String.fromCharCode(code.charCodeAt(i) ^ _TC_KEY.charCodeAt(i % _TC_KEY.length));
+  return btoa(out).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function decodeTeam(encoded) {
+  if (!encoded) return null;
+  try {
+    let b64 = encoded.replace(/-/g,"+").replace(/_/g,"/");
+    while (b64.length % 4) b64 += "=";
+    const raw = atob(b64);
+    let out = "";
+    for (let i = 0; i < raw.length; i++) out += String.fromCharCode(raw.charCodeAt(i) ^ _TC_KEY.charCodeAt(i % _TC_KEY.length));
+    return out;
+  } catch(e) { return null; }
+}
 function getTeamCode() {
   const params = new URLSearchParams(window.location.search);
+  // Prefer encrypted "t" param, fall back to plain "team" for backward compatibility
+  const encrypted = params.get("t");
+  if (encrypted) return decodeTeam(encrypted);
   return params.get("team") || null;
 }
 
@@ -513,7 +535,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
 
   const [facPage, setFacPage] = useState("quant"); // "quant" or "text"
   const [copied, setCopied] = useState(false);
-  const teamLink = teamCode ? `${window.location.origin}${window.location.pathname}?team=${teamCode}` : "";
+  const teamLink = teamCode ? `${window.location.origin}${window.location.pathname}?t=${encodeTeam(teamCode)}` : "";
   const copyLink = () => {
     navigator.clipboard.writeText(teamLink).then(() => { setCopied(true); setTimeout(()=>setCopied(false), 2000); });
   };
