@@ -542,7 +542,7 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
 
   const removeProfile = (id) => setProfiles(p => p.filter(x => x.id !== id));
 
-  const agg = profiles.length > 1 ? (() => {
+  const agg = profiles.length >= 1 ? (() => {
     // Union of ALL keys across all profiles
     const keySet = new Set();
     profiles.forEach(p => Object.keys(p.scores).forEach(k => keySet.add(k)));
@@ -757,10 +757,10 @@ function FacilitatorView({onBack, teamCode: initialTeamCode}) {
         </div>
       )}
 
-      {teamCode && profiles.length < 2 && (
+      {teamCode && profiles.length === 0 && (
         <div style={{background:C.goldBg,border:`1px solid ${C.gold}44`,borderRadius:10,padding:"14px",marginBottom:20}}>
           <p style={{color:C.cream,fontSize:12,margin:0,lineHeight:1.6}}>
-            Warte auf mindestens <strong>2 Profile</strong>, um die Team-Aggregation zu sehen. Die Seite aktualisiert sich automatisch alle 15 Sekunden.
+            Noch keine Profile eingegangen. Die Seite aktualisiert sich automatisch alle 15 Sekunden.
           </p>
         </div>
       )}
@@ -1301,7 +1301,7 @@ function App() {
             ))}
 
             <div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",marginTop:24,marginBottom:12}}>
-              <div style={{color:C.rose,fontWeight:700,fontSize:11}}>Qualitative Rückmeldungen (optional)</div>
+              <div style={{color:C.rose,fontWeight:700,fontSize:11}}>Qualitative Rückmeldungen</div>
             </div>
             {AGL_OPEN.map((item,idx)=>(
               <div key={item.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"12px 14px",marginBottom:7}}>
@@ -1312,7 +1312,7 @@ function App() {
                 <textarea
                   value={answers[item.id]||""}
                   onChange={e=>setAns(item.id, e.target.value)}
-                  placeholder="Ihre Rückmeldung (optional)…"
+                  placeholder="Ihre Rückmeldung…"
                   rows={3}
                   style={{width:"100%",padding:"10px 12px",borderRadius:7,background:C.faint,border:`1px solid ${C.border}`,color:C.cream,fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit",lineHeight:1.6}}
                 />
